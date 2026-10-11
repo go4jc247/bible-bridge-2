@@ -198,7 +198,7 @@ function toast(msg){var t=$("toast");t.textContent=_(msg);t.style.display="block
 var KEY="audio-bible-draft11";
 var state=null,viewDay=null,query="";
 function allLangs(){return LANGS.concat(XLANGS)}
-function langById(id){return LANGS.filter(function(l){return l.id===id})[0]||XLANGS.filter(function(l){return l.id===id})[0]||LANGS[0]}
+function langById(id){return LANGS.filter(function(l){return l.id===id})[0]||XLANGS.filter(function(l){return l.id===id})[0]||BXLANGS.filter(function(l){return l.id===id})[0]||LANGS[0]}
 function versionsFor(l){return VERSIONS.filter(function(v){return v.lang===l&&!v.more})}
 function versionsAll(l){var a=versionsFor(l);return a.concat(VERSIONS.filter(function(v){return v.lang===l&&v.more}))}
 function curVersion(){var v=VERSIONS.filter(function(x){return x.id===state.prefs.ver})[0];if(!v||v.lang!==state.prefs.lang){v=versionsFor(state.prefs.lang)[0];state.prefs.ver=v.id}return v}
@@ -484,10 +484,12 @@ VERSIONS.forEach(function(v){if(v.bgn)VN[v.id]=[v.bgn,"BibleGateway",v.bgl]});
 
 /* ---------- bible.com (YouVersion) links ----------
    Bible Bridge only links out. No Bible text or audio is stored here.
-   yv/versions.json lists the versions on bible.com: {t:{language:[[id,abbreviation,title,level,audio?]]}}
-   level: 1 whole Bible, 2 New Testament only, 3 Old Testament only. audio? is only set where it has been checked (1 yes, 0 no).
-   Whether a version has audio is not in the list, so the app asks you once after you have looked (YVA, kept on this device). */
-var YVH="f95d2ea4";
+   yv/versions.json lists the versions on bible.com for the app's own languages: {t:{language:[[id,abbreviation,title,level,audio?]]}}
+   level: 1 whole Bible, 2 New Testament only, 3 Old Testament only (from bible.com's own per-book canon data).
+   audio?: 1 yes, 0 no (from bible.com's own per-version audio flag); missing means unknown, so the app asks once after you look (YVA, kept on this device).
+   yv/browse.json holds the rest of the bible.com catalog (languages the app doesn't otherwise offer), loaded only when "More languages on bible.com" is opened:
+   {t:{tag:[[id,abbreviation,title,level,audio?]]},n:{tag:[englishName,localName]}}. These languages are Bible-only, like XLANGS: no translated menu. */
+var YVH="v2-2463langs";
 function yvGet(k,d){try{var x=localStorage.getItem(k);return x?JSON.parse(x):d}catch(e){return d}}
 function yvSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 var YVA=yvGet("bb_yvaudio",{}),YVD=null,YVALT={};
@@ -574,6 +576,81 @@ function yvCopyRow(box){
   box.appendChild(h("button",{class:"btn ghost",type:"button",style:"margin-top:14px",onclick:function(){
     try{navigator.clipboard.writeText(JSON.stringify(yvGet("bb_yvaudio",{}))).then(function(){toast("Copied")},function(){toast("Could not copy")})}catch(e){toast("Could not copy")}
   }},["Copy my bible.com audio list"]));
+}
+/* ---------- bible.com: more languages (the rest of the bible.com catalog, loaded only when opened) ----------
+   yv/browse.json lists every bible.com language not already offered above: {t:{tag:[[id,ab,title,level,audio]]},n:{tag:[englishName,localName]}}
+   These languages have no translated Bible Bridge menu, so they behave like the existing Bible-only (XLANGS) languages:
+   picked only from this list, never offered in the UI-language or splash pickers. */
+var YVBH="1",YVB=null,YVBP=null,YVBREG={},BXLANGS=[];
+function yvBrowseLoad(){
+  if(YVB)return Promise.resolve(YVB);
+  if(YVBP)return YVBP;
+  var c=yvGet("bb_yvb",null);
+  if(c&&c.h===YVBH&&c.d){YVB=c.d;return Promise.resolve(YVB)}
+  YVBP=fetch("yv/browse.json?v="+YVBH).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(d){
+    YVB=d;yvSet("bb_yvb",{h:YVBH,d:d});YVBP=null;return d;
+  },function(e){YVBP=null;throw e});
+  return YVBP;
+}
+function yvRegisterBrowseLang(tag,rows){
+  if(YVBREG[tag])return;YVBREG[tag]=1;
+  rows.forEach(function(r){
+    var id="yv-"+r[0];
+    if(VERSIONS.some(function(v){return v.id===id}))return;
+    VERSIONS.push({id:id,lang:tag,label:r[1]+" · "+r[2],yv:{id:r[0],ab:r[1]},yvOnly:1,more:0});
+    VN[id]=[r[2],"bible.com",r[3]];
+    if(r[4]!==undefined&&YVA[r[0]]===undefined)YVA[r[0]]=r[4];
+  });
+}
+function yvBrowseEnsureLang(tag,d){
+  if(!BXLANGS.some(function(l){return l.id===tag})){
+    var nm=d.n[tag]||[tag,tag];
+    BXLANGS.push({id:tag,flag:"🌐",nat:nm[1],en:nm[0]});
+  }
+  if(d.t[tag])yvRegisterBrowseLang(tag,d.t[tag]);
+}
+/* after a reload, re-register a previously picked "more languages" choice before the first render (uses the cached copy; no fetch if already cached) */
+function yvBrowseRestore(){
+  var lg=state.prefs.lang;
+  if(!lg||allLangs().some(function(l){return l.id===lg})||BXLANGS.some(function(l){return l.id===lg}))return;
+  var c=yvGet("bb_yvb",null);
+  if(c&&c.h===YVBH&&c.d&&c.d.t[lg]){YVB=c.d;yvBrowseEnsureLang(lg,c.d)}
+}
+function openYvBrowse(){
+  openSheet(function(box){
+    box.appendChild(sheetHead("More languages on bible.com",RICO.lang));
+    box.appendChild(h("p",{class:"note",text:"These languages don’t have a translated Bible Bridge menu yet. You’ll read and listen on bible.com."}));
+    var qinp=h("input",{type:"search",placeholder:"Search languages",autocomplete:"off","aria-label":"Search languages"});
+    box.appendChild(h("div",{class:"searchrow"},[qinp]));
+    var list=h("div",{style:"margin-top:8px"});
+    box.appendChild(list);
+    list.appendChild(h("p",{class:"muted",text:"Loading…"}));
+    yvBrowseLoad().then(function(d){
+      var entries=Object.keys(d.n).map(function(tag){return {tag:tag,en:d.n[tag][0],nat:d.n[tag][1]}});
+      entries.sort(function(a,b){return a.en.localeCompare(b.en)});
+      function render(){
+        var qq=qinp.value.trim().toLowerCase();
+        var rows=qq?entries.filter(function(e){return e.en.toLowerCase().indexOf(qq)>-1||e.nat.toLowerCase().indexOf(qq)>-1}):entries;
+        list.innerHTML="";
+        if(!rows.length){list.appendChild(h("p",{class:"muted",text:"No languages match."}));return}
+        rows.slice(0,300).forEach(function(e){
+          list.appendChild(h("button",{class:"lrow",type:"button",onclick:function(){
+            yvBrowseEnsureLang(e.tag,d);
+            state.prefs.all=false;state.prefs.lang=e.tag;
+            var vs=versionsFor(e.tag);if(vs[0])state.prefs.ver=vs[0].id;
+            save();closeSheet();refreshAll();
+          }},[
+            h("span",{class:"flag",text:"🌐","aria-hidden":"true"}),
+            h("span",{class:"names"},[h("div",{class:"nat",dir:"auto",text:e.nat}),e.nat!==e.en?h("div",{class:"sec",text:e.en}):null])
+          ]));
+        });
+        if(rows.length>300)list.appendChild(h("p",{class:"muted",text:"Showing the first 300 matches. Keep typing to narrow it down."}));
+      }
+      qinp.oninput=render;render();
+    },function(){
+      list.innerHTML="";list.appendChild(h("p",{class:"muted",text:"Couldn’t load the language list. Check your connection and try again."}));
+    });
+  });
 }
 function vName(v){var k=VKEY[v.id];if(k){var tb=VNAMES[uiLang()]||VNAMES.en;return tb[VK.indexOf(k)]}var x=VN[v.id];return x?x[0]:v.label}
 function vReader(v){var x=VN[v.id];if(!x)return "";var rd=VRD[uiLang()]||VRD.en;return _(x[1]).replace("\u00a7R",rd[0]).replace("\u00a7D",rd[1])}
@@ -824,6 +901,9 @@ function openLang(opts){
         box.appendChild(h("div",{class:"vwrap"},[row,btn]));
       });
     });
+    if(mode==="audio")box.appendChild(h("button",{class:"lrow",type:"button",style:"margin-top:6px",onclick:openYvBrowse},[
+      h("span",{class:"flag",text:"🌐","aria-hidden":"true"}),
+      h("span",{class:"names"},[h("div",{class:"nat",text:"More languages on bible.com"}),h("div",{class:"sec",text:"Read and listen · no app menu yet"})])]));
   });
 }
 
@@ -1513,7 +1593,7 @@ function setTab(name){
 function refreshAll(){renderHero();renderControls();renderPlansTab();renderBibleTab()}
 $("tabPlans").onclick=function(){setTab("plans")};
 $("tabBible").onclick=function(){setTab("bible")};
-yvBoot();load();applyTheme();lpBoot();
+yvBoot();load();applyTheme();lpBoot();yvBrowseRestore();
 
 $("tpi").innerHTML=ic("calendar-event").innerHTML;$("tpg").innerHTML=ic("chevron-right").innerHTML;
 $("tbi").innerHTML=ic("book-2").innerHTML;$("tbg").innerHTML=ic("chevron-right").innerHTML;
