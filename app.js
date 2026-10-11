@@ -392,11 +392,11 @@ function passageRow(units,color,ctx){
   });
   return h("div",{class:"prow"},[h("span",{class:"gdot",style:"background:"+color}),body]);
 }
-function linkSheet(title,sub,listen,read,back,onGo,unkL,extra){
+function linkSheet(title,sub,listen,read,back,onGo,unkL,edit){
   /* listen / read: nothing, one address, a function, or a list of {site,href,yv,ask} (one row per site) */
   function norm(x){return !x?[]:Array.isArray(x)?x:[{site:"",href:x}]}
   openSheet(function(box){
-    box.appendChild(sheetHead(title));
+    box.appendChild(sheetHead(title,null,edit));
     if(sub)box.appendChild(h("p",{class:"note",text:sub}));
     var ext=false;
     function opt(kind,items){
@@ -413,7 +413,6 @@ function linkSheet(title,sub,listen,read,back,onGo,unkL,extra){
     var oL=opt("l",norm(listen)),oR=opt("r",norm(read));
     box.appendChild(oL);box.appendChild(oR);
     if(ext)box.appendChild(h("p",{class:"note",style:"margin-top:10px",text:"These links leave Bible Bridge for BibleGateway or bible.com. We are not affiliated with either site. We only point you to where the Bible is."}));
-    if(extra)extra(box);
     if(back)box.appendChild(h("button",{class:"btn ghost",type:"button",style:"margin-top:6px",onclick:back},["Back"]));
   });
 }
@@ -442,7 +441,7 @@ function choosePlayMethod(b,c,u,back,onGo){
   }
   var sub=part?"Audio plays the whole chapter. Read opens just these verses.":"";
   if(alt&&part)sub+=(sub?" ":"")+"bible.com opens the whole chapter.";
-  linkSheet(label,sub,L,R,back,onGo,unk,alt?yvFooter(alt):null);
+  linkSheet(label,sub,L,R,back,onGo,unk,alt?yvEdit(alt,vName(v)):null);
 }
 function choosePlayDay(plan,idx){
   var v=curVersion(),us=[];
@@ -463,7 +462,7 @@ function choosePlayDay(plan,idx){
     if(!v.yvOnly||rOK)R.push({site:"bible.com",href:yvUrl(alt,us[0].b,us[0].c,false),ask:au===undefined?{id:alt.id,ab:alt.ab,t:vName(v)}:null});
   }
   var sub=alt&&us.length>1?"bible.com shows one chapter at a time, so its links open the first chapter of the day.":"";
-  linkSheet(title,sub,L,R,null,function(){markOpenedDay(plan,idx)},unk,alt?yvFooter(alt):null);
+  linkSheet(title,sub,L,R,null,function(){markOpenedDay(plan,idx)},unk,alt?yvEdit(alt,vName(v)):null);
 }
 
 var VN={"esv-mclean": ["English Standard Version (ESV)", "Max McLean", 1], "esv-heath": ["English Standard Version (ESV)", "David Cochran Heath", 1], "esv-laughlin": ["English Standard Version (ESV)", "Marquis Laughlin", 1], "niv-mclean": ["New International Version (NIV)", "Max McLean", 1], "niv-dramatized": ["New International Version (NIV)", "Dramatized", 1], "niv-sarris": ["New International Version (NIV)", "George W. Sarris", 1], "nivuk-suchet": ["New International Version UK (NIVUK)", "David Suchet", 1], "kjv-mims": ["King James Version (KJV)", "Paul Mims", 1], "kjv-mclean": ["King James Version (KJV)", "Max McLean", 1], "kjv-dramatized": ["King James Version (KJV)", "Dramatized", 1], "nkjv-bubb": ["New King James Version (NKJV)", "Simon Bubb", 1], "nkjv-laraye": ["New King James Version (NKJV)", "Tinasha LaRaye", 1], "nasb-mcconachie": ["New American Standard Bible (NASB)", "Dale McConachie", 1], "nasb95-mcconachie": ["New American Standard Bible 1995 (NASB1995)", "Dale McConachie", 1], "csb-mohr": ["Christian Standard Bible (CSB)", "Jon Mohr", 1], "hcsb-mcconachie": ["Holman Christian Standard Bible (HCSB)", "Dale McConachie", 1], "nlt-breathe": ["New Living Translation (NLT)", "Breathe", 1], "msg-dolan": ["The Message (MSG)", "Kelly Ryan Dolan", 1], "gnv-cook": ["1599 Geneva Bible (GNV)", "Steve Cook", 1], "leb-logos": ["Lexham English Bible (LEB)", "Logos", 1], "ccb-biblica": ["圣经当代译本·简体 (CCB)", "Biblica", 1], "ccbt-biblica": ["聖經當代譯本·繁體 (CCBT)", "Biblica", 1], "csbs-hao": ["中文标准译本·简体 (CSBS)", "Ran Hao", 1], "csbt-hao": ["中文標準譯本·繁體 (CSBT)", "Ran Hao", 1], "lbla-montoya": ["La Biblia de las Américas (LBLA)", "Samuel Montoya H", 1], "nvi-cruz": ["Nueva Versión Internacional (NVI)", "Rafael Cruz", 1], "nvi-ev": ["Nueva Versión Internacional (NVI)", "Experiencia Viva", 1], "nav-biblica": ["الترجمة العربية الجديدة (NAV)", "Biblica", 1], "nvipt-biblica": ["Nova Versão Internacional (NVI-PT)", "Biblica", 1], "rst-isa": ["Синодальный перевод (RUSV)", "§R · ISA · Digital Bible Society", 1], "rst-fcbh": ["Синодальный перевод (RUSV)", "§D · Faith Comes By Hearing", 1], "nrt-biblica": ["Новый русский перевод (NRT)", "Biblica", 1], "bds-biblica": ["La Bible du Semeur (BDS)", "Biblica", 1], "hof-biblica": ["Hoffnung für Alle (HOF)", "Biblica", 1], "jlb-biblica": ["リビングバイブル (JLB)", "Biblica", 1], "bk-hodul": ["Bible Kralická (BK)", "Joseph Hodul", 1], "farsi-as": ["کتاب مقدس فارسی", "Audio Scriptures", 0], "reimer": ["Reimer 2001 (REIMER)", "Elmer Reimer", 2], "ntlr-biblica": ["Nouă Traducere în Limba Română (NTLR)", "Biblica", 1], "slo1979-hodul": ["SLO1979", "Joseph Hodul", 0], "snt-biblica": ["Agano Jipya (SNT)", "Biblica", 2], "sfb": ["Svenska Folkbibeln (SFB)", "Svenska Folkbibeln", 1], "sfb15": ["Svenska Folkbibeln 2015 (SFB15)", "Svenska Folkbibeln", 1], "tncv-biblica": ["พระคัมภีร์ไทยฉบับร่วมสมัยใหม่ (TNCV)", "Biblica", 1]};
@@ -553,16 +552,28 @@ window.addEventListener("focus",yvAsk);
 window.addEventListener("pageshow",yvAsk);
 document.addEventListener("touchstart",function(){if(YVW&&Date.now()-YVW.at>4000)yvAsk()},{passive:true,capture:true});
 document.addEventListener("click",function(){if(YVW&&Date.now()-YVW.at>4000)yvAsk()},true);
-function yvFooter(alt){
-  return function(box){
-    var row=h("div",{style:"display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"});
-    if(YVA[alt.id]!==undefined)row.appendChild(h("button",{class:"btn ghost",type:"button",onclick:function(){delete YVA[alt.id];yvSet("bb_yvaudio",YVA);closeSheet();try{refreshAll()}catch(e){}toast("Audio info cleared")}},["Audio info wrong? Reset"]));
-    row.appendChild(h("button",{class:"btn ghost",type:"button",onclick:function(){
-      var txt=JSON.stringify(YVA);
-      try{navigator.clipboard.writeText(txt).then(function(){toast("Copied")},function(){toast("Could not copy")})}catch(e){toast("Could not copy")}
-    }},["Copy my audio list"]));
-    box.appendChild(row);
+/* pencil next to the X on a link sheet: fix the saved audio answer for this bible.com version (only once an answer exists) */
+function yvEdit(alt,name){
+  if(YVA[alt.id]===undefined)return null;
+  return function(){
+    function set(n){if(n===undefined)delete YVA[alt.id];else YVA[alt.id]=n;yvSet("bb_yvaudio",YVA);closeSheet();try{refreshAll()}catch(e){}toast("Saved")}
+    openSheet(function(box){
+      box.appendChild(sheetHead("Audio on bible.com"));
+      box.appendChild(h("p",{class:"muted",text:"Does "+name+" have audio on bible.com?"}));
+      box.appendChild(h("div",{style:"display:grid;gap:8px;margin-top:12px"},[
+        h("button",{class:"btn"+(YVA[alt.id]===1?"":" ghost"),type:"button",onclick:function(){set(1)}},["Yes, it has audio"]),
+        h("button",{class:"btn"+(YVA[alt.id]===0?"":" ghost"),type:"button",onclick:function(){set(0)}},["No audio"]),
+        h("button",{class:"btn ghost",type:"button",onclick:function(){set(undefined)}},["Not sure \u00b7 ask me again"])]));
+    });
   };
+}
+/* "Copy my audio list": tucked at the bottom of the Bible version list, only once answers have been saved */
+function yvCopyRow(box){
+  var mine=yvGet("bb_yvaudio",{});
+  if(!Object.keys(mine).length)return;
+  box.appendChild(h("button",{class:"btn ghost",type:"button",style:"margin-top:14px",onclick:function(){
+    try{navigator.clipboard.writeText(JSON.stringify(yvGet("bb_yvaudio",{}))).then(function(){toast("Copied")},function(){toast("Could not copy")})}catch(e){toast("Could not copy")}
+  }},["Copy my bible.com audio list"]));
 }
 function vName(v){var k=VKEY[v.id];if(k){var tb=VNAMES[uiLang()]||VNAMES.en;return tb[VK.indexOf(k)]}var x=VN[v.id];return x?x[0]:v.label}
 function vReader(v){var x=VN[v.id];if(!x)return "";var rd=VRD[uiLang()]||VRD.en;return _(x[1]).replace("\u00a7R",rd[0]).replace("\u00a7D",rd[1])}
@@ -739,7 +750,11 @@ function openSheet(build){lastFocus=document.activeElement;var b=$("sheetBox");b
 function closeSheet(){$("overlay").classList.remove("show");$("overlay").setAttribute("aria-hidden","true");if(lastFocus&&lastFocus.focus)try{lastFocus.focus()}catch(e){}}
 $("overlay").onclick=function(e){if(e.target===$("overlay"))closeSheet()};
 document.addEventListener("keydown",function(e){if(e.key==="Escape"){if($("overlay").classList.contains("show"))closeSheet();else if(!$("screen").hidden)hideScreen()}});
-function sheetHead(title,icon){return h("div",{class:"shead"},[h("div",{class:"st"},[icon?h("img",{class:"rico",src:icon,alt:""}):null,h("span",{text:title})]),h("button",{class:"xbtn",type:"button","aria-label":"Close",onclick:closeSheet},[ic("x")])])}
+function sheetHead(title,icon,edit){
+  var x=h("button",{class:"xbtn",type:"button","aria-label":"Close",onclick:closeSheet},[ic("x")]);
+  var right=edit?h("div",{style:"display:flex;gap:8px;align-items:center"},[h("button",{class:"xbtn",type:"button","aria-label":"Edit audio info",onclick:edit},[ic("edit")]),x]):x;
+  return h("div",{class:"shead"},[h("div",{class:"st"},[icon?h("img",{class:"rico",src:icon,alt:""}):null,h("span",{text:title})]),right]);
+}
 
 function openChapters(i){
   var b=BOOKS[i],v=curVersion();
@@ -1067,6 +1082,7 @@ function openVersions(){
         body.hidden=!isOpen;
         box.appendChild(h("div",{class:"lgroup"},[head,body]));
       });
+      yvCopyRow(box);
       dlScanSoon(800);
       return;
     }
@@ -1075,6 +1091,7 @@ function openVersions(){
     var all=versionsFor(state.prefs.lang),cv=VERSIONS.filter(function(x){return x.id===state.prefs.ver})[0];
     if(cv&&cv.more&&cv.lang===state.prefs.lang)all=all.concat([cv]);
     versionsSorted(all).forEach(function(v){box.appendChild(versionRow(v))});
+    yvCopyRow(box);
     dlScanSoon(800);
   });
 }
