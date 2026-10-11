@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Audio Check</title>
+<style>
+:root{--bg:#f4f1ea;--card:#fff;--ink:#10294a;--muted:#5b6b82;--navy:#06306f;--yes:#1d7a46;--no:#5b6b82;--bad:#b4540a;--line:#d9d4c7}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1726;--card:#16253b;--ink:#eef2f8;--muted:#9fb0c8;--navy:#8fb4ff;--yes:#2f9e5f;--no:#6c7f99;--bad:#d4721f;--line:#2a3b55}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:17px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+body{display:flex;flex-direction:column;min-height:100dvh;padding-top:env(safe-area-inset-top)}
+header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px}
+header h1{font-size:18px;margin:0}
+.small{appearance:none;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:12px;padding:10px 14px;font-weight:600;font-size:15px;font-family:inherit;min-height:44px}
+.small:disabled{opacity:.4}
+.bar{height:6px;background:var(--line);margin:0 16px;border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--navy)}
+.stats{display:flex;justify-content:space-between;color:var(--muted);font-size:14px;padding:8px 16px 0}
+main{flex:1;padding:16px;display:flex;flex-direction:column;gap:14px;overflow:auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px}
+.lang{color:var(--muted);font-size:14px;text-transform:uppercase;letter-spacing:.06em}
+.title{font-size:24px;font-weight:700;margin:6px 0 4px;word-break:break-word}
+.abbr{color:var(--muted)}
+a.open{display:block;margin-top:16px;text-align:center;text-decoration:none;background:var(--navy);color:#fff;font-weight:700;font-size:20px;padding:20px 12px;border-radius:16px}
+@media (prefers-color-scheme:dark){a.open{color:#06306f}}
+.hint{color:var(--muted);font-size:15px;text-align:center}
+.msg{text-align:center;padding:30px 10px}
+footer{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:12px 12px calc(12px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+footer button{appearance:none;border:0;border-radius:18px;min-height:92px;color:#fff;font-weight:700;font-size:18px;font-family:inherit;line-height:1.15;padding:8px 4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+footer button span{font-size:14px;font-weight:600;opacity:.9}
+footer button:active{transform:scale(.97);filter:brightness(.92)}
+footer button:disabled{opacity:.35}
+.b-no{background:var(--no)}.b-yes{background:var(--yes)}.b-bad{background:var(--bad)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top) + 64px);background:#10294a;color:#fff;padding:10px 16px;border-radius:12px;font-size:15px;opacity:0;pointer-events:none;transition:opacity .2s}
+.toast.on{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <button class="small" id="undo" type="button">Undo last</button>
+  <h1>Audio Check</h1>
+  <button class="small" id="save" type="button">Save log</button>
+</header>
+<div class="bar"><i id="fill"></i></div>
+<div class="stats"><span id="pos">Loading…</span><span id="tally"></span></div>
+<main id="main"><div class="msg hint">Loading the version list…</div></main>
+<footer>
+  <button class="b-no" id="bNo" type="button" disabled>No audio<span>next →</span></button>
+  <button class="b-yes" id="bYes" type="button" disabled>Yes, audio<span>next →</span></button>
+  <button class="b-bad" id="bBad" type="button" disabled>Link broken<span>next →</span></button>
+</footer>
+<div class="toast" id="toast"></div>
+<script>
+(function(){
+"use strict";
+var KEY="bb_acheck";
+var MAIN=["en","zh","es","ar","pt","ru","fr","de","ja","cs","fa","pl","pdt","ro","sk","sw","sv","th"];
+function $(i){return document.getElementById(i)}
+function ls(k,d){try{var x=localStorage.getItem(k);return x?JSON.parse(x):d}catch(e){return d}}
+function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+var log=ls(KEY,[]);           /* [{id,ab,t,lg,r,at}]  r = audio | no_audio | broken */
+var items=[],all=0,cur=null,locked=false;
+
+function toast(m){var t=$("toast");t.textContent=m;t.classList.add("on");clearTimeout(toast._t);toast._t=setTimeout(function(){t.classList.remove("on")},1800)}
+function url(it){
+  var book=it.lv===2?"JHN":"GEN";   /* New Testament only versions open John 1, others open Genesis 1 */
+  return "https://www.bible.com/bible/"+it.id+"/"+book+".1."+encodeURIComponent(it.ab);
+}
+function buildQueue(d){
+  var known=ls("bb_yvaudio",{}),done={};
+  log.forEach(function(e){done[e.id]=1});
+  var langs=Object.keys(d.t);
+  langs.sort(function(a,b){var ia=MAIN.indexOf(a),ib=MAIN.indexOf(b);ia=ia<0?99:ia;ib=ib<0?99:ib;return ia-ib});
+  var q=[];
+  langs.forEach(function(lg){d.t[lg].forEach(function(r){
+    /* skip versions whose audio is already known: checked in the app, or marked in the list itself */
+    if(known[r[0]]!==undefined||r[4]!==undefined)return;
+    q.push({id:r[0],ab:r[1],t:r[2],lv:r[3],lg:lg});
+  })});
+  all=q.length+log.filter(function(e){return true}).length;
+  return q.filter(function(it){return !done[it.id]});
+}
+function counts(){var c={audio:0,no_audio:0,broken:0};log.forEach(function(e){c[e.r]=(c[e.r]||0)+1});return c}
+function render(){
+  var main=$("main"),c=counts(),n=log.length;
+  $("fill").style.width=(all?Math.round(n/all*100):0)+"%";
+  $("tally").textContent="Audio "+c.audio+" · None "+c.no_audio+" · Broken "+c.broken;
+  $("undo").disabled=!log.length;
+  cur=items[0]||null;
+  ["bNo","bYes","bBad"].forEach(function(i){$(i).disabled=!cur});
+  if(!cur){
+    $("pos").textContent=n+" of "+all+" checked";
+    main.innerHTML="";
+    var m=document.createElement("div");m.className="card msg";
+    m.innerHTML="<div class=\"title\">All done</div><div class=\"hint\">Tap Save log at the top, then send me the file.</div>";
+    main.appendChild(m);return;
+  }
+  $("pos").textContent="Version "+(n+1)+" of "+all;
+  main.innerHTML="";
+  var card=document.createElement("div");card.className="card";
+  var l=document.createElement("div");l.className="lang";l.textContent="Language: "+cur.lg;
+  var t=document.createElement("div");t.className="title";t.textContent=cur.t;
+  var a=document.createElement("div");a.className="abbr";a.textContent=cur.ab+" · id "+cur.id+(cur.lv===2?" · New Testament":cur.lv===3?" · Old Testament":"");
+  var o=document.createElement("a");o.className="open";o.href=url(cur);o.target="_blank";o.rel="noopener";o.textContent="Open on bible.com";
+  card.appendChild(l);card.appendChild(t);card.appendChild(a);card.appendChild(o);
+  main.appendChild(card);
+  var h=document.createElement("div");h.className="hint";h.textContent="Open it, look for audio, come back, then tap a button below.";
+  main.appendChild(h);
+  main.scrollTop=0;
+}
+function answer(r){
+  if(locked||!cur)return;
+  locked=true;setTimeout(function(){locked=false},300);
+  log.push({id:cur.id,ab:cur.ab,t:cur.t,lg:cur.lg,lv:cur.lv,r:r,at:new Date().toISOString()});
+  lsSet(KEY,log);
+  items.shift();render();
+}
+function undo(){
+  if(!log.length)return;
+  var e=log.pop();lsSet(KEY,log);
+  items.unshift({id:e.id,ab:e.ab,t:e.t,lg:e.lg,lv:e.lv||1});
+  render();toast("Undid: "+e.ab);
+}
+function csv(){
+  function q(x){return "\""+String(x).replace(/"/g,"\"\"")+"\""}
+  var rows=["id,abbreviation,title,language,result,time"];
+  log.forEach(function(e){rows.push([e.id,q(e.ab),q(e.t),e.lg,e.r,e.at].join(","))});
+  return rows.join("\n")+"\n";
+}
+function save(){
+  if(!log.length){toast("Nothing to save yet");return}
+  var text=csv(),name="audio-check-log.csv";
+  function download(){
+    try{
+      var a=document.createElement("a");
+      a.href=URL.createObjectURL(new Blob([text],{type:"text/csv"}));a.download=name;
+      document.body.appendChild(a);a.click();a.remove();toast("Saved "+log.length+" results");
+    }catch(e){copy()}
+  }
+  function copy(){
+    try{navigator.clipboard.writeText(text).then(function(){toast("Copied the log. Paste it into a message")},function(){toast("Could not save")})}catch(e){toast("Could not save")}
+  }
+  try{
+    var f=new File([text],name,{type:"text/csv"});
+    if(navigator.canShare&&navigator.canShare({files:[f]})){navigator.share({files:[f]}).then(function(){toast("Saved")},function(err){if(!err||err.name!=="AbortError")download()});return}
+  }catch(e){}
+  download();
+}
+$("bNo").onclick=function(){answer("no_audio")};
+$("bYes").onclick=function(){answer("audio")};
+$("bBad").onclick=function(){answer("broken")};
+$("undo").onclick=undo;
+$("save").onclick=save;
+
+fetch("yv/versions.json").then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(d){
+  items=buildQueue(d);all=items.length+log.length;render();
+}).catch(function(){
+  $("main").innerHTML="<div class=\"card msg\"><div class=\"title\">Could not load the list</div><div class=\"hint\">Check that yv/versions.json is in the same folder, and that you are online.</div></div>";
+  $("pos").textContent="";
+});
+})();
+</script>
+</body>
+</html>
