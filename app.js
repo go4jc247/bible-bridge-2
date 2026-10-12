@@ -742,6 +742,7 @@ function closeClock(){
     openApp(v,us[i].b,us[i].c,true,us.slice(i).map(function(u){return{b:u.b,c:u.c}}));
     seekReaderAudioOnce(resumeAt);
   }else if(firedToday)playTodaysReading(false);
+  else if(SWPENDING){SWPENDING=false;location.reload()}   // nothing to hand off right now, so this is the safe moment
 }
 function openAlarmSheet(){
   openSheet(function(box){
@@ -1088,7 +1089,10 @@ function renderPlansTab(){
       el.appendChild(h("button",{class:"pcard"+(ok?"":" pdim"),type:"button",onclick:function(){startPresetSheet(p)}},kids));
     });
   });
-  el.appendChild(h("div",{class:"foot"},[h("button",{class:"linkbtn",type:"button",onclick:function(){confirmSheet("Reset plans?","This removes all your plans and progress.","Reset",true,function(){state=seed();viewDay=null;save();refreshAll();toast("Reset")})}},["Reset plans"])]));
+  el.appendChild(h("div",{class:"foot"},[
+    h("button",{class:"linkbtn",type:"button",onclick:function(){confirmSheet("Reset plans?","This removes all your plans and progress.","Reset",true,function(){state=seed();viewDay=null;save();refreshAll();toast("Reset")})}},["Reset plans"]),
+    h("button",{class:"linkbtn",type:"button",style:"margin-left:16px",onclick:checkForUpdates},["Check for updates"])
+  ]));
 }
 
 /* ---------- Whole Bible tab ---------- */
@@ -2100,4 +2104,38 @@ if(ENTRY==="play"||ENTRY==="clock"){
 window.addEventListener('load',function(){dlScanSoon(4000)});
 
 /* PWA: offline support (only on real http(s) hosting) */
-(function(){try{if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol))window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){})})}catch(e){}})();
+/* a new service worker taking over means the files this page is already running from are now stale — reload to
+   pick up the fresh ones. The only files that carry over on their own either way are the downloaded Bible text
+   and audio (their own, separately named caches — see reader.js), never touched by any of this.
+   Deferred while the bedside alarm is actually on screen: reloading out from under an overnight alarm would be
+   worse than running one page behind until it closes. */
+var SWREG=null,SWPENDING=false;
+(function(){
+  try{
+    if(!('serviceWorker' in navigator)||!/^https?:$/.test(location.protocol))return;
+    window.addEventListener('load',function(){
+      navigator.serviceWorker.register('sw.js').then(function(reg){SWREG=reg}).catch(function(){});
+    });
+    navigator.serviceWorker.addEventListener('controllerchange',function(){
+      if(CLK&&CLK.open){SWPENDING=true;return}
+      location.reload();
+    });
+  }catch(e){}
+})();
+function checkForUpdates(){
+  if(!('serviceWorker' in navigator)){toast("This browser doesn’t support checking for updates");return}
+  toast("Checking for updates…");
+  (SWREG?Promise.resolve(SWREG):navigator.serviceWorker.getRegistration()).then(function(reg){
+    if(!reg){toast("Couldn’t check right now");return}
+    SWREG=reg;
+    var found=false;
+    reg.addEventListener("updatefound",function(){
+      found=true;
+      var sw=reg.installing;if(!sw)return;
+      sw.addEventListener("statechange",function(){if(sw.state==="activated")toast("Updated — refreshing…")});
+    },{once:true});
+    reg.update().then(function(){
+      setTimeout(function(){if(!found)toast("You’re already on the latest version")},1500);
+    });
+  }).catch(function(){toast("Couldn’t check right now")});
+}

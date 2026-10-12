@@ -1,11 +1,17 @@
 /* Bible Bridge service worker.
    Change VERSION whenever you upload a new index.html so phones pick up the update. */
-const VERSION = 'v3.2.1';
+const VERSION = 'v3.3.0';
 const CACHE = 'bible-bridge-' + VERSION;
 const CORE = ['./', 'index.html', 'style.css', 'app.js', 'images.js', 'reader.js', 'reader.css', 'manifest.webmanifest'];
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting()));
+  // {cache:'reload'} on purpose: addAll() alone would respect GitHub Pages' normal HTTP caching, which could hand
+  // a "fresh" install a file that is itself still stale. This forces each one straight from the network.
+  event.waitUntil(
+    caches.open(CACHE)
+      .then(c => Promise.all(CORE.map(url => fetch(url, { cache: 'reload' }).then(res => c.put(url, res)))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', event => {
