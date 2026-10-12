@@ -569,30 +569,44 @@ function fmtAlarmTime(hhmm){
    Snooze pauses it and backs up 10 seconds; resuming just un-pauses the same Audio object, it doesn't start over. */
 var ALM={audio:null,us:null,i:0,v:null};
 function almChapterUrl(v,u){return(window.BBReader&&BBReader.audioUrl&&v.app)?BBReader.audioUrl(v.app,u.b,u.c):""}
-function almPlayNext(){
-  if(!ALM.audio||!ALM.us||ALM.i>=ALM.us.length)return;
+/* sets up the current chapter's src; returns false if there was nothing left to load */
+function almLoadChapter(){
+  if(!ALM.audio||!ALM.us||ALM.i>=ALM.us.length)return false;
   var url=almChapterUrl(ALM.v,ALM.us[ALM.i]);
-  if(!url){ALM.i++;almPlayNext();return}
+  if(!url){ALM.i++;return almLoadChapter()}
   ALM.audio.src=url;ALM.audio.currentTime=0;
-  var p=ALM.audio.play();if(p&&p.catch)p.catch(function(){});
+  return true;
+}
+/* a browser will refuse to play audio that was started from an unattended timer, not a tap — that's exactly how
+   the alarm fires, so every play() attempt here can be silently refused. onBlocked lets the clock ask for one
+   real tap instead of just sitting there with no sound and no explanation. */
+function almTryPlay(onOk,onBlocked){
+  var a=ALM.audio;if(!a)return;
+  var p=a.play();
+  if(p&&p.then)p.then(onOk||function(){},onBlocked||function(){});
+  else if(onOk)onOk();
 }
 function almStart(d){
   var a=new Audio();a.preload="auto";a.setAttribute("playsinline","");
   ALM.audio=a;ALM.us=d.us;ALM.i=0;ALM.v=d.v;
   a.onended=function(){
     ALM.i++;
-    if(ALM.i<ALM.us.length){almPlayNext();return}
+    if(ALM.i<ALM.us.length){if(almLoadChapter())almTryPlay(null,clkNeedsTap);return}
     almClear();
     if(CLK.face)clkRingingOff();   // today's reading finished playing on its own
   };
-  a.volume=0;almPlayNext();almFadeIn();
+  a.volume=0;
+  if(almLoadChapter())almTryPlay(almOnPlaying,clkNeedsTap);
   markOpenedDay(d.plan,d.idx);
+}
+function almOnPlaying(){
+  if(CLK.face){CLK.face.prompt.textContent="Tap to snooze";CLK.face.prompt.onclick=clkSnoozeTap}
+  almFadeIn();
 }
 function almFadeIn(){
   if(!ALM.audio)return;
   if(CLK.fadeIv)clearInterval(CLK.fadeIv);
   var a=ALM.audio,steps=40,i=0,dur=12000;
-  var p=a.play();if(p&&p.catch)p.catch(function(){});
   CLK.fadeIv=setInterval(function(){i++;a.volume=Math.min(1,i/steps);if(i>=steps){clearInterval(CLK.fadeIv);CLK.fadeIv=null}},dur/steps);
 }
 function almPauseRewind(){
@@ -616,6 +630,13 @@ function clkRingingOff(){
   CLK.face.root.classList.remove("dpFiring");
   CLK.face.prompt.onclick=null;
 }
+/* the browser blocked playback (no user gesture) — ask for one tap instead of ringing silently */
+function clkNeedsTap(){
+  if(!CLK.face)return;
+  CLK.face.root.classList.add("dpFiring");
+  CLK.face.prompt.textContent="🔔 Tap to start your reading";
+  CLK.face.prompt.onclick=function(){almTryPlay(almOnPlaying,clkNeedsTap)};
+}
 function clkSnoozeTap(){
   almPauseRewind();
   clkRingingOff();
@@ -625,12 +646,7 @@ function clkSnoozeTap(){
 function clkFire(){
   var face=CLK.face;
   face.root.classList.add("dpFiring");
-  if(ALM.audio){   // picking back up after a snooze — keep playing from where it paused, don't restart
-    almFadeIn();
-    face.prompt.textContent="Tap to snooze";
-    face.prompt.onclick=clkSnoozeTap;
-    return;
-  }
+  if(ALM.audio){almTryPlay(almOnPlaying,clkNeedsTap);return}   // picking back up after a snooze — don't restart
   var d=bestDailySource(true);
   if(!d.ok){
     face.prompt.textContent=d.msg;
@@ -639,8 +655,6 @@ function clkFire(){
   }
   if(d.kind==="app"){
     almStart(d);
-    face.prompt.textContent="Tap to snooze";
-    face.prompt.onclick=clkSnoozeTap;
   }else{
     face.prompt.textContent="🔔 Tap to play today’s Bible reading";
     face.prompt.onclick=function(){runDailySource(d);state.snoozeUntil=Date.now()+9*60000;save();clkRingingOff()};
@@ -678,17 +692,22 @@ function openClock(){
 }
 /* the X always means "turn off": if the alarm had started reading, hand off to the in-app reader at the
    beginning of whatever chapter was playing (or paused on, if snoozed) — not mid-sentence, just that chapter's
-   start, so no exact-position handoff is needed. Otherwise the clock just disappears onto whatever was behind it. */
+   start, so no exact-position handoff is needed. Otherwise the clock just disappears onto whatever was behind it.
+   A phone left alarmed overnight can have its page reloaded by iOS before you ever touch it (normal background
+   behaviour for a Safari tab/PWA) — that wipes ALM, but state.alarmFiredDate survives (it's saved), so if the
+   alarm genuinely went off today we still open today's reading from the top rather than just closing on nothing. */
 function closeClock(){
   CLK.open=false;
   if(CLK.timer){clearInterval(CLK.timer);CLK.timer=null}
   var v=ALM.v,us=ALM.us,i=ALM.i;
+  var firedToday=state.alarmFiredDate===new Date().toDateString();
   almClear();
   state.snoozeUntil=null;save();
   clkWlRelease();
   CLK.face=null;
   hideScreen();
   if(v&&us&&i<us.length)openApp(v,us[i].b,us[i].c,true,us.slice(i).map(function(u){return{b:u.b,c:u.c}}));
+  else if(firedToday)playTodaysReading(false);
 }
 function openAlarmSheet(){
   openSheet(function(box){
