@@ -1,7 +1,7 @@
 document.getElementById("spLogo").src=IMG.logo;
 
 
-var ICONS={"home": "<path d=\"M5 12l-2 0l9 -9l9 9l-2 0\" /> <path d=\"M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7\" /> <path d=\"M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6\" />", "book-2": "<path d=\"M19 4v16h-12a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2h12\" /> <path d=\"M19 16h-12a2 2 0 0 0 -2 2\" /> <path d=\"M9 8h6\" />", "calendar-event": "<path d=\"M4 7a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12\" /> <path d=\"M16 3l0 4\" /> <path d=\"M8 3l0 4\" /> <path d=\"M4 11l16 0\" /> <path d=\"M8 15h2v2h-2l0 -2\" />", "settings": "<path d=\"M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065\" /> <path d=\"M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0\" />", "headphones": "<path d=\"M4 15a2 2 0 0 1 2 -2h1a2 2 0 0 1 2 2v3a2 2 0 0 1 -2 2h-1a2 2 0 0 1 -2 -2l0 -3\" /> <path d=\"M15 15a2 2 0 0 1 2 -2h1a2 2 0 0 1 2 2v3a2 2 0 0 1 -2 2h-1a2 2 0 0 1 -2 -2l0 -3\" /> <path d=\"M4 15v-3a8 8 0 0 1 16 0v3\" />", "chevron-right": "<path d=\"M9 6l6 6l-6 6\" />", "chevron-down": "<path d=\"M6 9l6 6l6 -6\" />", "chevron-left": "<path d=\"M15 6l-6 6l6 6\" />", "arrow-left": "<path d=\"M5 12l14 0\" /> <path d=\"M5 12l6 6\" /> <path d=\"M5 12l6 -6\" />", "plus": "<path d=\"M12 5l0 14\" /> <path d=\"M5 12l14 0\" />", "trash": "<path d=\"M4 7l16 0\" /> <path d=\"M10 11l0 6\" /> <path d=\"M14 11l0 6\" /> <path d=\"M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12\" /> <path d=\"M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3\" />", "check": "<path d=\"M5 12l5 5l10 -10\" />", "search": "<path d=\"M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0\" /> <path d=\"M21 21l-6 -6\" />", "x": "<path d=\"M18 6l-12 12\" /> <path d=\"M6 6l12 12\" />", "world": "<path d=\"M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0\" /> <path d=\"M3.6 9h16.8\" /> <path d=\"M3.6 15h16.8\" /> <path d=\"M11.5 3a17 17 0 0 0 0 18\" /> <path d=\"M12.5 3a17 17 0 0 1 0 18\" />", "circle-check": "<path d=\"M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\" /> <path d=\"M9 12l2 2l4 -4\" />", "sun-moon": "<path d=\"M9.173 14.83a4 4 0 1 1 5.657 -5.657\" /> <path d=\"M11.294 12.707l.174 .247a7.5 7.5 0 0 0 8.845 2.492a9 9 0 0 1 -14.671 2.914\" /> <path d=\"M3 12h1\" /> <path d=\"M12 3v1\" /> <path d=\"M5.6 5.6l.7 .7\" /> <path d=\"M3 21l18 -18\" />", "player-play": "<path d=\"M7 4v16l13 -8l-13 -8\" />", "alert-circle": "<path d=\"M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0\" /> <path d=\"M12 8v4\" /> <path d=\"M12 16h.01\" />", "dots": "<path d=\"M4 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\" /> <path d=\"M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\" /> <path d=\"M18 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\" />", "edit": "<path d=\"M7 7h-1a2 2 0 0 0 -2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2 -2v-1\" /> <path d=\"M20.385 6.585a2.1 2.1 0 0 0 -2.97 -2.97l-8.415 8.385v3h3l8.385 -8.415\" /> <path d=\"M16 5l3 3\" />", "refresh": "<path d=\"M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4\" /> <path d=\"M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4\" />", "list-details": "<path d=\"M13 5h8\" /> <path d=\"M13 9h5\" /> <path d=\"M13 15h8\" /> <path d=\"M13 19h5\" /> <path d=\"M3 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\" /> <path d=\"M3 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\" />", "language": "<path d=\"M9 6.371c0 4.418 -2.239 6.629 -5 6.629\" /> <path d=\"M4 6.371h7\" /> <path d=\"M5 9c0 2.144 2.252 3.908 6 4\" /> <path d=\"M12 20l4 -9l4 9\" /> <path d=\"M19.1 18h-6.2\" /> <path d=\"M6.694 3l.793 .582\" />"};
+var ICONS={"home": "<path d=\"M5 12l-2 0l9 -9l9 9l-2 0\" /> <path d=\"M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7\" /> <path d=\"M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6\" />", "book-2": "<path d=\"M19 4v16h-12a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2h12\" /> <path d=\"M19 16h-12a2 2 0 0 0 -2 2\" /> <path d=\"M9 8h6\" />", "calendar-event": "<path d=\"M4 7a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12\" /> <path d=\"M16 3l0 4\" /> <path d=\"M8 3l0 4\" /> <path d=\"M4 11l16 0\" /> <path d=\"M8 15h2v2h-2l0 -2\" />", "settings": "<path d=\"M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065\" /> <path d=\"M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0\" />", "headphones": "<path d=\"M4 15a2 2 0 0 1 2 -2h1a2 2 0 0 1 2 2v3a2 2 0 0 1 -2 2h-1a2 2 0 0 1 -2 -2l0 -3\" /> <path d=\"M15 15a2 2 0 0 1 2 -2h1a2 2 0 0 1 2 2v3a2 2 0 0 1 -2 2h-1a2 2 0 0 1 -2 -2l0 -3\" /> <path d=\"M4 15v-3a8 8 0 0 1 16 0v3\" />", "chevron-right": "<path d=\"M9 6l6 6l-6 6\" />", "chevron-down": "<path d=\"M6 9l6 6l6 -6\" />", "chevron-left": "<path d=\"M15 6l-6 6l6 6\" />", "arrow-left": "<path d=\"M5 12l14 0\" /> <path d=\"M5 12l6 6\" /> <path d=\"M5 12l6 -6\" />", "plus": "<path d=\"M12 5l0 14\" /> <path d=\"M5 12l14 0\" />", "trash": "<path d=\"M4 7l16 0\" /> <path d=\"M10 11l0 6\" /> <path d=\"M14 11l0 6\" /> <path d=\"M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12\" /> <path d=\"M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3\" />", "check": "<path d=\"M5 12l5 5l10 -10\" />", "search": "<path d=\"M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0\" /> <path d=\"M21 21l-6 -6\" />", "x": "<path d=\"M18 6l-12 12\" /> <path d=\"M6 6l12 12\" />", "world": "<path d=\"M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0\" /> <path d=\"M3.6 9h16.8\" /> <path d=\"M3.6 15h16.8\" /> <path d=\"M11.5 3a17 17 0 0 0 0 18\" /> <path d=\"M12.5 3a17 17 0 0 1 0 18\" />", "circle-check": "<path d=\"M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0\" /> <path d=\"M9 12l2 2l4 -4\" />", "sun-moon": "<path d=\"M9.173 14.83a4 4 0 1 1 5.657 -5.657\" /> <path d=\"M11.294 12.707l.174 .247a7.5 7.5 0 0 0 8.845 2.492a9 9 0 0 1 -14.671 2.914\" /> <path d=\"M3 12h1\" /> <path d=\"M12 3v1\" /> <path d=\"M5.6 5.6l.7 .7\" /> <path d=\"M3 21l18 -18\" />", "player-play": "<path d=\"M7 4v16l13 -8l-13 -8\" />", "alert-circle": "<path d=\"M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0\" /> <path d=\"M12 8v4\" /> <path d=\"M12 16h.01\" />", "dots": "<path d=\"M4 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\" /> <path d=\"M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\" /> <path d=\"M18 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0\" />", "edit": "<path d=\"M7 7h-1a2 2 0 0 0 -2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2 -2v-1\" /> <path d=\"M20.385 6.585a2.1 2.1 0 0 0 -2.97 -2.97l-8.415 8.385v3h3l8.385 -8.415\" /> <path d=\"M16 5l3 3\" />", "refresh": "<path d=\"M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4\" /> <path d=\"M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4\" />", "list-details": "<path d=\"M13 5h8\" /> <path d=\"M13 9h5\" /> <path d=\"M13 15h8\" /> <path d=\"M13 19h5\" /> <path d=\"M3 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\" /> <path d=\"M3 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4\" />", "language": "<path d=\"M9 6.371c0 4.418 -2.239 6.629 -5 6.629\" /> <path d=\"M4 6.371h7\" /> <path d=\"M5 9c0 2.144 2.252 3.908 6 4\" /> <path d=\"M12 20l4 -9l4 9\" /> <path d=\"M19.1 18h-6.2\" /> <path d=\"M6.694 3l.793 .582\" />", "alarm": "<path d=\"M12 12m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0\" /> <path d=\"M12 10l0 2l1 1\" /> <path d=\"M7 4l-2.75 2\" /> <path d=\"M17 4l2.75 2\" />"};
 var TILES=IMG.tiles;
 var BOOKICONS=IMG.bookicons;
 var ROOT="https://www.biblegateway.com/audio/";
@@ -204,7 +204,7 @@ function versionsAll(l){var a=versionsFor(l);return a.concat(VERSIONS.filter(fun
 function curVersion(){var v=VERSIONS.filter(function(x){return x.id===state.prefs.ver})[0];if(!v||v.lang!==state.prefs.lang){v=versionsFor(state.prefs.lang)[0];state.prefs.ver=v.id}return v}
 function seed(){
   var t=todayStr();
-  return {prefs:{lang:"en",ver:"esv-mclean",mode:"listen",tab:"plans",theme:"auto"},
+  return {prefs:{lang:"en",ver:"esv-mclean",mode:"listen",tab:"plans",theme:"auto",alarmOn:false,alarmTime:"06:30"},
    plans:[],customs:[],active:null};
 }
 function load(){try{var s=JSON.parse(localStorage.getItem(KEY));if(s&&s.prefs&&s.plans){s.plans=s.plans.filter(function(p){return p.id!=="p-sample"});if(s.active==="p-sample"||!s.plans.some(function(p){return p.id===s.active}))s.active=s.plans.length?s.plans[0].id:null;if(!s.customs)s.customs=[];state=s;return}}catch(e){}state=seed()}
@@ -503,6 +503,159 @@ function choosePlayDay(plan,idx){
   var sub=alt&&us.length>1?"bible.com shows one chapter at a time, so its links open the first chapter of the day.":"";
   linkSheet(title,sub,L,R,null,function(){markOpenedDay(plan,idx)},unk,alt?yvEdit(alt,vName(v)):null);
 }
+/* ---------- today's reading: one tap, best available source (used by the daily-play link and the bedside alarm) ----------
+   Priority: in-app reader (plays itself) -> BibleGateway audio -> bible.com audio.
+   forAlarm true: stop there if none of those have audio (the alarm needs sound to do its job).
+   forAlarm false: fall back to reading, same site priority (BibleGateway text, then bible.com text).
+   Split into "decide" (bestDailySource, no side effects) and "do it" (runDailySource) so the alarm can decide
+   ahead of time and only call runDailySource from an actual tap — opening an outside tab from an unattended
+   timer gets blocked by the browser's popup blocker, so for bible.com/BibleGateway the alarm has to wait for a tap anyway. */
+function bestDailySource(forAlarm){
+  var plan=activePlan();
+  if(!plan)return{ok:false,msg:"No active reading plan."};
+  var idx=Math.min(Math.max(planDayIndex(plan),0),plan.days-1);
+  var us=[];schedule(plan)[idx].forEach(function(g){g.forEach(function(u){us.push(u)})});
+  if(!us.length)return{ok:false,msg:"Rest day — nothing to read today."};
+  var v=curVersion();
+  var aOK=us.every(function(u){return availFor(v,u.b,false)}),rOK=us.every(function(u){return availFor(v,u.b,true)});
+  if(v.app)return{ok:true,kind:"app",plan:plan,idx:idx,v:v,us:us};
+  var alt=yvAlt(v),au=alt?YVA[alt.id]:undefined;
+  if(!v.yvOnly&&aOK)return{ok:true,kind:"bg-audio",plan:plan,idx:idx,v:v,us:us};
+  if(alt&&au===1)return{ok:true,kind:"yv-audio",plan:plan,idx:idx,v:v,us:us,alt:alt};
+  if(forAlarm)return{ok:false,msg:"No audio available for today’s reading in this version."};
+  if(!v.yvOnly&&rOK)return{ok:true,kind:"bg-text",plan:plan,idx:idx,v:v,us:us};
+  if(alt&&(!v.yvOnly||rOK))return{ok:true,kind:"yv-text",plan:plan,idx:idx,v:v,us:us,alt:alt};
+  return{ok:false,msg:"No reading available for today in this version."};
+}
+function runDailySource(d){
+  if(d.kind==="app")openApp(d.v,d.us[0].b,d.us[0].c,true,d.us.map(function(u){return{b:u.b,c:u.c}}));
+  else if(d.kind==="bg-audio")window.open(bgAudioUrl(d.plan,d.idx,d.v),"_blank","noopener");
+  else if(d.kind==="yv-audio")window.open(yvUrl(d.alt,d.us[0].b,d.us[0].c,true),"_blank","noopener");
+  else if(d.kind==="bg-text")window.open("https://www.biblegateway.com/passage/?search="+encodeURIComponent(d.us.map(function(u){return BEN[u.b]+" "+u.c+(u.v1?":"+u.v1+"-"+u.v2:"")}).join("; "))+"&version="+encodeURIComponent(bgCode(d.v)),"_blank","noopener");
+  else if(d.kind==="yv-text")window.open(yvUrl(d.alt,d.us[0].b,d.us[0].c,false),"_blank","noopener");
+  markOpenedDay(d.plan,d.idx);
+}
+function playTodaysReading(forAlarm){
+  var d=bestDailySource(forAlarm);
+  if(!d.ok)return d;
+  runDailySource(d);
+  return{ok:true,kind:d.kind};
+}
+/* ---------- daily-play link: a full-screen "tap to play today's reading" page, for a Home Screen / Shortcuts link ---------- */
+function openDailyPlay(){
+  var status=h("p",{class:"dpStatus"});
+  var tap=h("button",{class:"dpTap",type:"button"},[ic("player-play"),h("div",{class:"dpLabel",text:"Tap to play today’s Bible reading"})]);
+  tap.onclick=function(){
+    var r=playTodaysReading(false);
+    status.textContent=r.ok?"Opened — check your other tab or app.":r.msg;
+  };
+  showScreen(h("div",{class:"dpWrap"},[
+    h("button",{class:"xbtn dpClose",type:"button","aria-label":"Close",onclick:hideScreen},[ic("x")]),
+    tap,status
+  ]));
+}
+/* ---------- bedside alarm: a dark full-screen clock, kept awake with the Wake Lock API, that fades in today's reading at a set time ---------- */
+function fmtAlarmTime(hhmm){
+  var p=(hhmm||"06:30").split(":"),h24=parseInt(p[0],10),m=p[1];
+  var ap=h24>=12?"PM":"AM",h12=h24%12;if(h12===0)h12=12;
+  return h12+":"+m+" "+ap;
+}
+function bbReaderAudio(){return window.BBReader&&window.BBReader._t&&window.BBReader._t.A}
+var CLK={open:false,wl:null,fadeIv:null,face:null};
+function clkWlRequest(){
+  if(!CLK.open||!("wakeLock" in navigator))return;
+  navigator.wakeLock.request("screen").then(function(wl){CLK.wl=wl}).catch(function(){});
+}
+function clkWlRelease(){if(CLK.wl){try{CLK.wl.release()}catch(e){}CLK.wl=null}}
+document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")clkWlRequest()});
+function clkDismiss(){
+  if(CLK.fadeIv){clearInterval(CLK.fadeIv);CLK.fadeIv=null}
+  var a=bbReaderAudio();if(a&&!a.paused)a.pause();
+  CLK.face.root.classList.remove("dpFiring");
+  CLK.face.prompt.onclick=null;
+}
+function clkSnooze(){
+  clkDismiss();
+  state.snoozeUntil=Date.now()+9*60000;save();
+  toast("Snoozed 9 minutes");
+}
+function clkFire(){
+  var d=bestDailySource(true);
+  var face=CLK.face;
+  face.root.classList.add("dpFiring");
+  if(!d.ok){
+    face.prompt.textContent=d.msg;
+    face.prompt.onclick=function(){clkDismiss()};
+    return;
+  }
+  if(d.kind==="app"){
+    runDailySource(d);
+    face.prompt.textContent="Tap to snooze";
+    face.prompt.onclick=clkSnooze;
+    var a=bbReaderAudio();
+    if(a){
+      a.volume=0;
+      var steps=40,i=0,dur=12000;
+      CLK.fadeIv=setInterval(function(){i++;a.volume=Math.min(1,i/steps);if(i>=steps){clearInterval(CLK.fadeIv);CLK.fadeIv=null}},dur/steps);
+    }
+  }else{
+    face.prompt.textContent="🔔 Tap to play today’s Bible reading";
+    face.prompt.onclick=function(){runDailySource(d);clkSnooze()};
+  }
+}
+function clkTick(){
+  var face=CLK.face;if(!face)return;
+  var now=new Date();
+  var hh=now.getHours(),mm=now.getMinutes();
+  var ap=hh>=12?"PM":"AM",h12=hh%12;if(h12===0)h12=12;
+  face.time.textContent=h12+":"+(mm<10?"0":"")+mm;
+  face.ap.textContent=ap;
+  face.date.textContent=now.toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"});
+  if(!state.prefs.alarmOn)return;
+  if(state.snoozeUntil){
+    if(Date.now()>=state.snoozeUntil){state.snoozeUntil=null;save();clkFire()}
+    return;
+  }
+  var hhmm=(hh<10?"0":"")+hh+":"+(mm<10?"0":"")+mm,today=now.toDateString();
+  if(hhmm===state.prefs.alarmTime&&state.alarmFiredDate!==today){state.alarmFiredDate=today;save();clkFire()}
+}
+function openClock(){
+  var root=h("div",{class:"dpWrap dpClock"});
+  var time=h("div",{class:"clkTime",text:"--:--"}),ap=h("div",{class:"clkAp",text:""}),date=h("div",{class:"clkDate",text:""});
+  var alarmNote=h("div",{class:"clkAlarm",text:state.prefs.alarmOn?"Alarm "+fmtAlarmTime(state.prefs.alarmTime):"No alarm set"});
+  var prompt=h("button",{class:"dpTap clkPrompt",type:"button"},["Tap to snooze"]);
+  var close=h("button",{class:"xbtn dpClose",type:"button","aria-label":"Close",onclick:function(){closeClock()}},[ic("x")]);
+  root.appendChild(close);root.appendChild(h("div",{class:"clkFace"},[time,ap,date,alarmNote]));root.appendChild(prompt);
+  CLK.face={root:root,time:time,ap:ap,date:date,prompt:prompt};
+  CLK.open=true;
+  showScreen(root);
+  clkWlRequest();
+  clkTick();
+  CLK.timer=setInterval(clkTick,10000);
+}
+function closeClock(){
+  CLK.open=false;
+  if(CLK.timer){clearInterval(CLK.timer);CLK.timer=null}
+  if(CLK.fadeIv){clearInterval(CLK.fadeIv);CLK.fadeIv=null}
+  clkWlRelease();
+  CLK.face=null;
+  hideScreen();
+}
+function openAlarmSheet(){
+  openSheet(function(box){
+    box.appendChild(sheetHead("Bedside alarm",null));
+    box.appendChild(h("p",{class:"note",text:"Keep Bible Bridge open and your screen from sleeping (Settings on iPhone), plug in, and this plays your active plan’s reading at the time below. Needs a version with audio — in-app, BibleGateway, or bible.com."}));
+    var time=h("input",{type:"time",value:state.prefs.alarmTime||"06:30","aria-label":"Alarm time"});
+    box.appendChild(h("div",{class:"field"},[h("label",{text:"Time"}),time]));
+    var onBtn=h("button",{class:"btn"+(state.prefs.alarmOn?"":" ghost"),type:"button",style:"margin-top:10px",onclick:function(){
+      state.prefs.alarmOn=!state.prefs.alarmOn;state.alarmFiredDate=null;state.snoozeUntil=null;save();refreshAll();closeSheet();openAlarmSheet();
+    }},[state.prefs.alarmOn?"Alarm is on":"Alarm is off — tap to turn on"]);
+    time.onchange=function(){state.prefs.alarmTime=time.value||"06:30";state.alarmFiredDate=null;save();renderControls()};
+    box.appendChild(onBtn);
+    box.appendChild(h("button",{class:"btn alt",type:"button",style:"margin-top:10px",onclick:function(){closeSheet();openClock()}},["Open bedside clock now"]));
+    box.appendChild(h("button",{class:"btn ghost",type:"button",style:"margin-top:10px",onclick:function(){closeSheet();openDailyPlay()}},["Open “tap to play today” screen"]));
+  });
+}
 
 var VN={"esv-mclean": ["English Standard Version (ESV)", "Max McLean", 1], "esv-heath": ["English Standard Version (ESV)", "David Cochran Heath", 1], "esv-laughlin": ["English Standard Version (ESV)", "Marquis Laughlin", 1], "niv-mclean": ["New International Version (NIV)", "Max McLean", 1], "niv-dramatized": ["New International Version (NIV)", "Dramatized", 1], "niv-sarris": ["New International Version (NIV)", "George W. Sarris", 1], "nivuk-suchet": ["New International Version UK (NIVUK)", "David Suchet", 1], "kjv-mims": ["King James Version (KJV)", "Paul Mims", 1], "kjv-mclean": ["King James Version (KJV)", "Max McLean", 1], "kjv-dramatized": ["King James Version (KJV)", "Dramatized", 1], "nkjv-bubb": ["New King James Version (NKJV)", "Simon Bubb", 1], "nkjv-laraye": ["New King James Version (NKJV)", "Tinasha LaRaye", 1], "nasb-mcconachie": ["New American Standard Bible (NASB)", "Dale McConachie", 1], "nasb95-mcconachie": ["New American Standard Bible 1995 (NASB1995)", "Dale McConachie", 1], "csb-mohr": ["Christian Standard Bible (CSB)", "Jon Mohr", 1], "hcsb-mcconachie": ["Holman Christian Standard Bible (HCSB)", "Dale McConachie", 1], "nlt-breathe": ["New Living Translation (NLT)", "Breathe", 1], "msg-dolan": ["The Message (MSG)", "Kelly Ryan Dolan", 1], "gnv-cook": ["1599 Geneva Bible (GNV)", "Steve Cook", 1], "leb-logos": ["Lexham English Bible (LEB)", "Logos", 1], "ccb-biblica": ["圣经当代译本·简体 (CCB)", "Biblica", 1], "ccbt-biblica": ["聖經當代譯本·繁體 (CCBT)", "Biblica", 1], "csbs-hao": ["中文标准译本·简体 (CSBS)", "Ran Hao", 1], "csbt-hao": ["中文標準譯本·繁體 (CSBT)", "Ran Hao", 1], "lbla-montoya": ["La Biblia de las Américas (LBLA)", "Samuel Montoya H", 1], "nvi-cruz": ["Nueva Versión Internacional (NVI)", "Rafael Cruz", 1], "nvi-ev": ["Nueva Versión Internacional (NVI)", "Experiencia Viva", 1], "nav-biblica": ["الترجمة العربية الجديدة (NAV)", "Biblica", 1], "nvipt-biblica": ["Nova Versão Internacional (NVI-PT)", "Biblica", 1], "rst-isa": ["Синодальный перевод (RUSV)", "§R · ISA · Digital Bible Society", 1], "rst-fcbh": ["Синодальный перевод (RUSV)", "§D · Faith Comes By Hearing", 1], "nrt-biblica": ["Новый русский перевод (NRT)", "Biblica", 1], "bds-biblica": ["La Bible du Semeur (BDS)", "Biblica", 1], "hof-biblica": ["Hoffnung für Alle (HOF)", "Biblica", 1], "jlb-biblica": ["リビングバイブル (JLB)", "Biblica", 1], "bk-hodul": ["Bible Kralická (BK)", "Joseph Hodul", 1], "farsi-as": ["کتاب مقدس فارسی", "Audio Scriptures", 0], "reimer": ["Reimer 2001 (REIMER)", "Elmer Reimer", 2], "ntlr-biblica": ["Nouă Traducere în Limba Română (NTLR)", "Biblica", 1], "slo1979-hodul": ["SLO1979", "Joseph Hodul", 0], "snt-biblica": ["Agano Jipya (SNT)", "Biblica", 2], "sfb": ["Svenska Folkbibeln (SFB)", "Svenska Folkbibeln", 1], "sfb15": ["Svenska Folkbibeln 2015 (SFB15)", "Svenska Folkbibeln", 1], "tncv-biblica": ["พระคัมภีร์ไทยฉบับร่วมสมัยใหม่ (TNCV)", "Biblica", 1]};
 var VK=["ccb", "ccbt", "csbs", "csbt", "lbla", "nvi", "nav", "nvipt", "rusv", "nrt", "bds", "hof", "jlb", "bk", "farsi", "reimer", "ntlr", "slo", "snt", "sfb", "sfb15", "tncv"];
@@ -722,6 +875,10 @@ function renderControls(){
   ]));
 
   var nn=ntNote();if(nn)el.appendChild(nn);
+
+  el.appendChild(h("div",{class:"icard"},[
+    h("button",{class:"irow",type:"button",onclick:openAlarmSheet},[ic("alarm"),h("span",{class:"rt"},[h("small",{text:"Bedside alarm"}),h("b",{text:state.prefs.alarmOn?"On · "+fmtAlarmTime(state.prefs.alarmTime):"Off"})]),ic("chevron-right")])
+  ]));
 }
 
 /* ---------- Reading plans tab ---------- */
@@ -1677,7 +1834,14 @@ yvBoot();load();applyTheme();lpBoot();yvBrowseRestore();
 
 $("tpi").innerHTML=ic("calendar-event").innerHTML;$("tpg").innerHTML=ic("chevron-right").innerHTML;
 $("tbi").innerHTML=ic("book-2").innerHTML;$("tbg").innerHTML=ic("chevron-right").innerHTML;
-refreshAll();setTab(state.prefs.tab==="bible"?"bible":"plans");splashStart();
+refreshAll();setTab(state.prefs.tab==="bible"?"bible":"plans");
+/* a Home Screen / Shortcuts link can land straight on the tap-to-play page or the bedside clock, skipping the splash
+   (the splash sits above #screen, so it has to be hidden outright, not just left un-started) */
+var ENTRY=new URLSearchParams(location.search).get("go");
+if(ENTRY==="play"||ENTRY==="clock"){
+  $("splash").hidden=true;
+  if(ENTRY==="play")openDailyPlay();else openClock();
+}else splashStart();
 
 /* header logo + sticky tab bar state */
 (function(){

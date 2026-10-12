@@ -65,7 +65,7 @@ h2.sec{font:700 12px var(--sans);letter-spacing:.08em;text-transform:uppercase;c
 .err{color:var(--danger);font-size:14px;margin:8px 2px 0}
 .field{margin-bottom:14px}
 .field label,.lbl{display:block;font:600 12px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
-.field input[type=text],.field input[type=date],.field input[type=number]{width:100%;min-height:48px;font:16px var(--sans);color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:0 14px}
+.field input[type=text],.field input[type=date],.field input[type=number],.field input[type=time]{width:100%;min-height:48px;font:16px var(--sans);color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:0 14px}
 .chiprow{display:flex;flex-wrap:wrap;gap:8px}
 .chipb{min-height:40px;padding:0 14px;border-radius:20px;border:1.5px solid var(--line);background:var(--card);font:600 14px var(--sans);cursor:pointer}
 .chipb[aria-pressed="true"]{background:var(--navy);color:var(--navy-ink);border-color:var(--navy)}
@@ -394,3 +394,21 @@ a.chbtn:active{opacity:.8;transform:scale(.95)}
 .lghead .chev{display:inline-flex;transition:transform .15s}
 .lgbody{padding:0 0 6px 10px}
 .lgbody[hidden]{display:none}
+
+/* ---------- daily-play link and bedside alarm: always dark, full screen, for a Home Screen / Shortcuts link ---------- */
+.dpWrap{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:env(safe-area-inset-top,20px) 20px env(safe-area-inset-bottom,20px);background:#0a0f1c;color:#fff;text-align:center}
+.dpWrap .dpClose{position:absolute;top:max(16px,env(safe-area-inset-top,16px));right:16px;background:rgba(255,255,255,.12);color:#fff}
+.dpTap{all:unset;display:flex;flex-direction:column;align-items:center;gap:14px;cursor:pointer;padding:28px;border-radius:24px;width:min(90vw,420px)}
+.dpTap:active{background:rgba(255,255,255,.08)}
+.dpTap .ic{width:64px;height:64px;color:#ffd84d}
+.dpLabel{font:700 clamp(20px,5vw,30px)/1.3 var(--sans)}
+.dpStatus{font:15px var(--sans);color:rgba(255,255,255,.75);min-height:20px}
+.clkFace{display:flex;flex-direction:column;align-items:center;gap:6px}
+.clkTime{font:800 clamp(64px,22vw,160px)/1 var(--sans);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.clkAp{font:600 clamp(16px,4vw,24px) var(--sans);color:rgba(255,255,255,.7);letter-spacing:.1em}
+.clkDate{font:500 clamp(14px,3.2vw,20px) var(--sans);color:rgba(255,255,255,.6);margin-top:6px}
+.clkAlarm{font:500 clamp(12px,2.6vw,16px) var(--sans);color:rgba(255,255,255,.45);margin-top:10px}
+.clkPrompt{display:none;font:700 clamp(18px,4.6vw,26px) var(--sans);color:#0a0f1c;background:#ffd84d;border-radius:20px;padding:22px 28px;width:min(90vw,420px);margin-top:10px}
+.dpFiring{animation:dpPulse 1.6s ease-in-out infinite}
+.dpFiring .clkPrompt{display:block}
+@keyframes dpPulse{0%,100%{background:#0a0f1c}50%{background:#1b2440}}
