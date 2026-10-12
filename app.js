@@ -569,6 +569,25 @@ function fmtAlarmTime(hhmm){
    Snooze pauses it and backs up 10 seconds; resuming just un-pauses the same Audio object, it doesn't start over. */
 var ALM={audio:null,us:null,i:0,v:null};
 function almChapterUrl(v,u){return(window.BBReader&&BBReader.audioUrl&&v.app)?BBReader.audioUrl(v.app,u.b,u.c):""}
+/* the one Audio() element this page session ever creates. A browser trusts an element to keep playing on a later,
+   unattended call only once THAT SAME element has played inside a real tap — a fresh new Audio() always gets
+   refused. So this gets created and "unlocked" (played a moment, muted, then paused) the instant you tap into the
+   bedside clock; the alarm later reuses this exact object instead of making a new one. */
+var PRIMED=null;
+function almAudio(){
+  if(!PRIMED){PRIMED=new Audio();PRIMED.preload="auto";PRIMED.setAttribute("playsinline","")}
+  return PRIMED;
+}
+function almPrime(){
+  var d=bestDailySource(true);
+  if(!d.ok||d.kind!=="app")return;
+  var a=almAudio(),url=almChapterUrl(d.v,d.us[0]);
+  if(!url)return;
+  var wasVol=a.volume;a.volume=0;a.src=url;a.currentTime=0;
+  var p=a.play();
+  if(p&&p.then)p.then(function(){a.pause();a.currentTime=0;a.volume=wasVol},function(){a.volume=wasVol});
+  else{a.pause();a.volume=wasVol}
+}
 /* sets up the current chapter's src; returns false if there was nothing left to load */
 function almLoadChapter(){
   if(!ALM.audio||!ALM.us||ALM.i>=ALM.us.length)return false;
@@ -587,7 +606,7 @@ function almTryPlay(onOk,onBlocked){
   else if(onOk)onOk();
 }
 function almStart(d){
-  var a=new Audio();a.preload="auto";a.setAttribute("playsinline","");
+  var a=almAudio();
   ALM.audio=a;ALM.us=d.us;ALM.i=0;ALM.v=d.v;
   a.onended=function(){
     ALM.i++;
@@ -614,8 +633,10 @@ function almPauseRewind(){
   var a=ALM.audio;if(!a)return;
   a.pause();a.currentTime=Math.max(0,a.currentTime-10);
 }
+/* stops the current reading but deliberately leaves PRIMED itself alone — it stays the same, already-unlocked
+   element so tomorrow's alarm (or a snooze later tonight) can keep using it without needing another tap. */
 function almClear(){
-  var a=ALM.audio;if(a){try{a.pause();a.removeAttribute("src");a.load()}catch(e){}}
+  if(ALM.audio){try{ALM.audio.pause()}catch(e){}}
   ALM={audio:null,us:null,i:0,v:null};
 }
 var CLK={open:false,wl:null,fadeIv:null,face:null};
@@ -677,6 +698,7 @@ function clkTick(){
   if(hhmm===state.prefs.alarmTime&&state.alarmFiredDate!==today){state.alarmFiredDate=today;save();clkFire()}
 }
 function openClock(){
+  almPrime();   // the tap that opens this screen is what unlocks audio for the alarm, hours from now, with no further tap
   var root=h("div",{class:"dpWrap dpClock"});
   var time=h("div",{class:"clkTime",text:"--:--"}),ap=h("div",{class:"clkAp",text:""}),date=h("div",{class:"clkDate",text:""});
   var alarmNote=h("div",{class:"clkAlarm",text:state.prefs.alarmOn?"Alarm "+fmtAlarmTime(state.prefs.alarmTime):"No alarm set"});
@@ -712,7 +734,7 @@ function closeClock(){
 function openAlarmSheet(){
   openSheet(function(box){
     box.appendChild(sheetHead("Bedside alarm",null));
-    box.appendChild(h("p",{class:"note",text:"Keep Bible Bridge open and your screen from sleeping (Settings on iPhone), plug in, and this plays your active plan’s reading at the time below. Needs a version with audio — in-app, BibleGateway, or bible.com."}));
+    box.appendChild(h("p",{class:"note",text:"Open the bedside clock below before bed — that’s what lets the alarm play without a tap in the morning. Keep Bible Bridge open and your screen from sleeping (Settings on iPhone), plug in. Needs an in-app audio version (KJV or Russian Synodal) — BibleGateway and bible.com versions always need a tap to open."}));
     var time=h("input",{type:"time",value:state.prefs.alarmTime||"06:30","aria-label":"Alarm time"});
     box.appendChild(h("div",{class:"field"},[h("label",{text:"Time"}),time]));
     var onBtn=h("button",{class:"btn"+(state.prefs.alarmOn?"":" ghost"),type:"button",style:"margin-top:10px",onclick:function(){
