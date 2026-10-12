@@ -712,9 +712,18 @@ function openClock(){
   clkTick();
   CLK.timer=setInterval(clkTick,10000);
 }
-/* the X always means "turn off": if the alarm had started reading, hand off to the in-app reader at the
-   beginning of whatever chapter was playing (or paused on, if snoozed) — not mid-sentence, just that chapter's
-   start, so no exact-position handoff is needed. Otherwise the clock just disappears onto whatever was behind it.
+/* once the reader's own <audio> element has loaded enough of the new chapter to accept a seek, jump it to
+   the exact spot the alarm's own playback was at — still playing live, or paused there if it had been snoozed. */
+function seekReaderAudioOnce(t){
+  if(t<=1)return;   // not worth seeking for a position this close to the start
+  var a=window.BBReader&&BBReader._t&&BBReader._t.A;if(!a)return;
+  function onReady(){a.removeEventListener("loadedmetadata",onReady);try{a.currentTime=t}catch(e){}}
+  if(a.readyState>=1)onReady();else a.addEventListener("loadedmetadata",onReady);
+}
+/* the X always means "turn off": if the alarm had started reading, hand off to the in-app reader at the exact
+   spot its own playback was at — still going if you hadn't snoozed, or where it paused if you had (snoozing is
+   what applies the 10-second back-up; X itself doesn't add another one, it just carries over whatever position
+   was already there). Otherwise the clock just disappears onto whatever was behind it.
    A phone left alarmed overnight can have its page reloaded by iOS before you ever touch it (normal background
    behaviour for a Safari tab/PWA) — that wipes ALM, but state.alarmFiredDate survives (it's saved), so if the
    alarm genuinely went off today we still open today's reading from the top rather than just closing on nothing. */
@@ -722,14 +731,17 @@ function closeClock(){
   CLK.open=false;
   if(CLK.timer){clearInterval(CLK.timer);CLK.timer=null}
   var v=ALM.v,us=ALM.us,i=ALM.i;
+  var resumeAt=ALM.audio?ALM.audio.currentTime:0;
   var firedToday=state.alarmFiredDate===new Date().toDateString();
   almClear();
   state.snoozeUntil=null;save();
   clkWlRelease();
   CLK.face=null;
   hideScreen();
-  if(v&&us&&i<us.length)openApp(v,us[i].b,us[i].c,true,us.slice(i).map(function(u){return{b:u.b,c:u.c}}));
-  else if(firedToday)playTodaysReading(false);
+  if(v&&us&&i<us.length){
+    openApp(v,us[i].b,us[i].c,true,us.slice(i).map(function(u){return{b:u.b,c:u.c}}));
+    seekReaderAudioOnce(resumeAt);
+  }else if(firedToday)playTodaysReading(false);
 }
 function openAlarmSheet(){
   openSheet(function(box){
