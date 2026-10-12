@@ -246,6 +246,12 @@ a.cnum{font:600 16px var(--sans);text-decoration:none;text-align:center;backgrou
 .linkbtn{border:0;background:transparent;color:var(--muted);font:600 13px var(--sans);text-decoration:underline;cursor:pointer;min-height:40px}
 
 /* splash */
+/* a plain white cover over everything for the first instant: whatever sizing jank happens while the real viewport
+   is still settling plays out underneath, unseen, then this simply fades away once it's done. No JS timer — a
+   pure CSS animation starts the moment the browser applies this rule, so it isn't itself at the mercy of any
+   script-loading delay. pointer-events:none throughout so it never blocks an unusually fast tap. */
+#wload{position:fixed;top:0;left:0;right:0;height:100vh;height:100dvh;z-index:60;background:#fff;pointer-events:none;animation:wloadOut .35s ease .5s forwards}
+@keyframes wloadOut{to{opacity:0;visibility:hidden}}
 /* height set explicitly (not just inset:0's implied one) because mobile Safari's address bar is still animating
    away when this first paints — inset:0 alone sizes against that pre-collapse viewport, then visibly snaps once
    it settles a fraction of a second later. 100dvh tracks the real, current visible area instead; 100vh stays as
