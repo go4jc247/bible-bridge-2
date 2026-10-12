@@ -518,7 +518,11 @@ function bestDailySource(forAlarm){
   if(!us.length)return{ok:false,msg:"Rest day — nothing to read today."};
   var v=curVersion();
   var aOK=us.every(function(u){return availFor(v,u.b,false)}),rOK=us.every(function(u){return availFor(v,u.b,true)});
-  if(v.app)return{ok:true,kind:"app",plan:plan,idx:idx,v:v,us:us};
+  if(v.app){
+    if(!v.noaudio)return{ok:true,kind:"app",plan:plan,idx:idx,v:v,us:us};
+    if(forAlarm)return{ok:false,msg:"No audio available for today’s reading in this version."};
+    return{ok:true,kind:"app-text",plan:plan,idx:idx,v:v,us:us};
+  }
   var alt=yvAlt(v),au=alt?YVA[alt.id]:undefined;
   if(!v.yvOnly&&aOK)return{ok:true,kind:"bg-audio",plan:plan,idx:idx,v:v,us:us};
   if(alt&&au===1)return{ok:true,kind:"yv-audio",plan:plan,idx:idx,v:v,us:us,alt:alt};
@@ -529,6 +533,7 @@ function bestDailySource(forAlarm){
 }
 function runDailySource(d){
   if(d.kind==="app")openApp(d.v,d.us[0].b,d.us[0].c,true,d.us.map(function(u){return{b:u.b,c:u.c}}));
+  else if(d.kind==="app-text")openApp(d.v,d.us[0].b,d.us[0].c,false,d.us.map(function(u){return{b:u.b,c:u.c}}));
   else if(d.kind==="bg-audio")window.open(bgAudioUrl(d.plan,d.idx,d.v),"_blank","noopener");
   else if(d.kind==="yv-audio")window.open(yvUrl(d.alt,d.us[0].b,d.us[0].c,true),"_blank","noopener");
   else if(d.kind==="bg-text")window.open("https://www.biblegateway.com/passage/?search="+encodeURIComponent(d.us.map(function(u){return BEN[u.b]+" "+u.c+(u.v1?":"+u.v1+"-"+u.v2:"")}).join("; "))+"&version="+encodeURIComponent(bgCode(d.v)),"_blank","noopener");
@@ -560,7 +565,45 @@ function fmtAlarmTime(hhmm){
   var ap=h24>=12?"PM":"AM",h12=h24%12;if(h12===0)h12=12;
   return h12+":"+m+" "+ap;
 }
-function bbReaderAudio(){return window.BBReader&&window.BBReader._t&&window.BBReader._t.A}
+/* its own dedicated player for the in-app case — never opens the visual reader, so the clock stays the only thing on screen.
+   Snooze pauses it and backs up 10 seconds; resuming just un-pauses the same Audio object, it doesn't start over. */
+var ALM={audio:null,us:null,i:0,v:null};
+function almChapterUrl(v,u){return(window.BBReader&&BBReader.audioUrl&&v.app)?BBReader.audioUrl(v.app,u.b,u.c):""}
+function almPlayNext(){
+  if(!ALM.audio||!ALM.us||ALM.i>=ALM.us.length)return;
+  var url=almChapterUrl(ALM.v,ALM.us[ALM.i]);
+  if(!url){ALM.i++;almPlayNext();return}
+  ALM.audio.src=url;ALM.audio.currentTime=0;
+  var p=ALM.audio.play();if(p&&p.catch)p.catch(function(){});
+}
+function almStart(d){
+  var a=new Audio();a.preload="auto";a.setAttribute("playsinline","");
+  ALM.audio=a;ALM.us=d.us;ALM.i=0;ALM.v=d.v;
+  a.onended=function(){
+    ALM.i++;
+    if(ALM.i<ALM.us.length){almPlayNext();return}
+    almClear();
+    if(CLK.face)clkRingingOff();   // today's reading finished playing on its own
+  };
+  a.volume=0;almPlayNext();almFadeIn();
+  markOpenedDay(d.plan,d.idx);
+}
+function almFadeIn(){
+  if(!ALM.audio)return;
+  if(CLK.fadeIv)clearInterval(CLK.fadeIv);
+  var a=ALM.audio,steps=40,i=0,dur=12000;
+  var p=a.play();if(p&&p.catch)p.catch(function(){});
+  CLK.fadeIv=setInterval(function(){i++;a.volume=Math.min(1,i/steps);if(i>=steps){clearInterval(CLK.fadeIv);CLK.fadeIv=null}},dur/steps);
+}
+function almPauseRewind(){
+  if(CLK.fadeIv){clearInterval(CLK.fadeIv);CLK.fadeIv=null}
+  var a=ALM.audio;if(!a)return;
+  a.pause();a.currentTime=Math.max(0,a.currentTime-10);
+}
+function almClear(){
+  var a=ALM.audio;if(a){try{a.pause();a.removeAttribute("src");a.load()}catch(e){}}
+  ALM={audio:null,us:null,i:0,v:null};
+}
 var CLK={open:false,wl:null,fadeIv:null,face:null};
 function clkWlRequest(){
   if(!CLK.open||!("wakeLock" in navigator))return;
@@ -568,39 +611,39 @@ function clkWlRequest(){
 }
 function clkWlRelease(){if(CLK.wl){try{CLK.wl.release()}catch(e){}CLK.wl=null}}
 document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")clkWlRequest()});
-function clkDismiss(){
-  if(CLK.fadeIv){clearInterval(CLK.fadeIv);CLK.fadeIv=null}
-  var a=bbReaderAudio();if(a&&!a.paused)a.pause();
+function clkRingingOff(){
+  if(!CLK.face)return;
   CLK.face.root.classList.remove("dpFiring");
   CLK.face.prompt.onclick=null;
 }
-function clkSnooze(){
-  clkDismiss();
+function clkSnoozeTap(){
+  almPauseRewind();
+  clkRingingOff();
   state.snoozeUntil=Date.now()+9*60000;save();
   toast("Snoozed 9 minutes");
 }
 function clkFire(){
-  var d=bestDailySource(true);
   var face=CLK.face;
   face.root.classList.add("dpFiring");
+  if(ALM.audio){   // picking back up after a snooze — keep playing from where it paused, don't restart
+    almFadeIn();
+    face.prompt.textContent="Tap to snooze";
+    face.prompt.onclick=clkSnoozeTap;
+    return;
+  }
+  var d=bestDailySource(true);
   if(!d.ok){
     face.prompt.textContent=d.msg;
-    face.prompt.onclick=function(){clkDismiss()};
+    face.prompt.onclick=function(){clkRingingOff()};
     return;
   }
   if(d.kind==="app"){
-    runDailySource(d);
+    almStart(d);
     face.prompt.textContent="Tap to snooze";
-    face.prompt.onclick=clkSnooze;
-    var a=bbReaderAudio();
-    if(a){
-      a.volume=0;
-      var steps=40,i=0,dur=12000;
-      CLK.fadeIv=setInterval(function(){i++;a.volume=Math.min(1,i/steps);if(i>=steps){clearInterval(CLK.fadeIv);CLK.fadeIv=null}},dur/steps);
-    }
+    face.prompt.onclick=clkSnoozeTap;
   }else{
     face.prompt.textContent="🔔 Tap to play today’s Bible reading";
-    face.prompt.onclick=function(){runDailySource(d);clkSnooze()};
+    face.prompt.onclick=function(){runDailySource(d);state.snoozeUntil=Date.now()+9*60000;save();clkRingingOff()};
   }
 }
 function clkTick(){
@@ -624,7 +667,7 @@ function openClock(){
   var time=h("div",{class:"clkTime",text:"--:--"}),ap=h("div",{class:"clkAp",text:""}),date=h("div",{class:"clkDate",text:""});
   var alarmNote=h("div",{class:"clkAlarm",text:state.prefs.alarmOn?"Alarm "+fmtAlarmTime(state.prefs.alarmTime):"No alarm set"});
   var prompt=h("button",{class:"dpTap clkPrompt",type:"button"},["Tap to snooze"]);
-  var close=h("button",{class:"xbtn dpClose",type:"button","aria-label":"Close",onclick:function(){closeClock()}},[ic("x")]);
+  var close=h("button",{class:"xbtn dpClose",type:"button","aria-label":"Turn off and go to the reading plan",onclick:function(){closeClock()}},[ic("x")]);
   root.appendChild(close);root.appendChild(h("div",{class:"clkFace"},[time,ap,date,alarmNote]));root.appendChild(prompt);
   CLK.face={root:root,time:time,ap:ap,date:date,prompt:prompt};
   CLK.open=true;
@@ -633,10 +676,14 @@ function openClock(){
   clkTick();
   CLK.timer=setInterval(clkTick,10000);
 }
+/* the X always means "turn off": pause and back up 10 seconds (harmless no-op if nothing was playing),
+   then the clock just disappears — whatever was behind it (the reading plan) is what you see next. */
 function closeClock(){
   CLK.open=false;
   if(CLK.timer){clearInterval(CLK.timer);CLK.timer=null}
-  if(CLK.fadeIv){clearInterval(CLK.fadeIv);CLK.fadeIv=null}
+  if(ALM.audio)almPauseRewind();
+  almClear();
+  state.snoozeUntil=null;save();
   clkWlRelease();
   CLK.face=null;
   hideScreen();
