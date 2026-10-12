@@ -1483,6 +1483,7 @@
       supported: function () { return !!window.caches; }
     },
     open: open,
+    audioUrl: function (id, b, c) { return audioUrlFor(TR[id], b, c); },   // the recording's address, so the plan screen can ask it how long a chapter is
     close: function () { close(false); },
     saved: savedSpot,
     translations: function () { return ORDER.map(function (id) { return TR[id]; }); },

@@ -236,6 +236,45 @@ function segLabel(sg){var bn=BOOKS[sg.b][2],u=sg.units;
   if(sg.b===PROV)return bn+" "+propRange(u);
   var a=u[0].c,z=u[u.length-1].c;return bn+" "+(a===z?a:a+"\u2013"+z)}
 function itemsText(units){return units.length?segs(units).map(segLabel).join(" \u00b7 "):"Rest day"}
+/* ---------- approximate audio length ----------
+   ASEC = seconds per chapter, estimated from the number of words in each chapter (English text, about 0.38 s a word,
+   checked against the measured John recordings: within about 4 percent a chapter). Other languages use the same figures
+   (Russian runs about 13 percent slower). John in English and Russian uses the measured times. It is an approximation. */
+var ASEC=[[304,241,265,241,192,221,223,223,251,189,231,204,174,231,179,157,259,330,422,190,295,240,205,692,269,339,481,237,316,389,540,303,194,301,253,322,359,312,254,221,535,372,357,333,279,292,368,243,292,262],[174,250,301,339,226,287,264,357,374,343,123,569,257,355,272,405,177,290,267,214,340,301,315,187,353,357,213,471,511,370,167,416,271,383,312,340,281,317,392,313],[200,185,195,441,275,340,402,376,238,239,425,100,708,653,350,441,211,254,342,319,224,335,466,210,584,475,364],[508,315,492,539,342,283,739,262,275,339,402,146,282,450,407,511,128,424,260,302,355,458,283,251,170,551,232,297,363,192,460,384,354,240,368,170],[481,389,311,573,351,245,321,216,367,230,362,402,239,270,269,271,269,233,232,246,279,341,261,259,214,254,228,791,324,253,397,498,307,122],[218,293,216,269,210,344,353,465,305,531,273,185,314,185,393,96,251,293,359,117,391,503,219,398],[367,264,321,290,288,493,363,376,635,180,471,152,291,269,247,423,147,394,420,554,282],[247,291,206,237],[298,421,209,279,167,287,194,206,377,329,192,294,266,612,374,259,655,322,265,491,190,290,317,252,553,323,147,318,160,364,133],[271,347,435,165,238,272,327,170,155,232,310,378,438,426,426,281,356,418,561,323,296,362,335,326],[572,575,324,269,201,388,565,815,315,320,477,395,434,376,362,394,259,532,279,564,346,578],[255,323,323,522,371,388,314,363,459,458,281,262,295,336,416,250,474,465,437,251,285,271,563,223,374],[260,322,132,325,253,511,317,187,366,139,360,376,147,136,272,324,297,152,240,110,348,231,259,206,207,271,307,329,376],[202,246,183,227,189,534,285,204,336,213,185,183,245,171,197,182,175,400,134,437,237,169,300,355,370,275,93,341,441,331,288,413,297,466,343,282],[141,380,208,293,222,296,329,377,235,352],[149,274,341,273,242,229,448,261,506,248,300,354,367],[273,307,210,197,188,181,131,248,375,35],[244,147,165,128,170,184,150,130,207,153,128,152,157,156,209,143,100,130,181,199,199,184,107,183,34,78,142,173,154,196,263,143,200,234,97,189,153,251,182,138,193,168],[50,78,57,67,97,65,131,67,144,133,52,60,44,60,39,80,120,368,107,58,97,225,46,69,132,71,131,78,70,93,193,94,133,139,216,90,269,141,107,155,94,110,50,176,131,83,59,91,133,154,131,74,62,52,170,92,94,86,136,93,54,91,78,73,106,128,46,270,259,43,179,142,163,158,76,78,130,468,107,131,114,46,106,91,83,120,46,121,337,125,110,101,35,136,76,86,72,66,60,34,67,180,132,228,241,290,261,81,207,56,67,66,54,40,104,109,13,177,940,35,43,50,37,48,43,37,44,40,47,46,25,107,29,18,125,134,63,67,159,94,79,62,98,117,128,68,114,77,54,32],[198,118,206,159,135,208,157,214,110,201,200,181,152,218,207,207,181,145,193,190,191,189,216,221,199,175,175,201,162,244,178],[145,280,197,145,203,115,235,196,211,153,104,142],[124,134,109,138,151,107,111,137],[289,216,224,80,329,139,264,213,228,354,198,51,219,326,101,158,163,97,278,64,159,258,179,226,145,210,154,310,283,403,123,166,223,199,106,263,431,226,102,303,306,258,271,338,295,130,179,239,330,139,294,154,147,188,152,138,217,199,225,253,145,138,205,117,287,309],[201,388,306,328,333,315,370,269,294,257,285,207,282,262,267,266,316,251,206,226,190,319,452,138,434,305,290,206,383,273,493,546,321,314,250,423,233,375,208,259,253,295,175,468,58,313,82,447,450,556,706,409],[289,336,334,228,113],[331,104,308,198,239,179,293,250,152,251,275,304,281,284,78,693,295,350,136,610,360,320,504,295,193,277,346,308,272,290,259,410,408,365,153,450,331,296,354,583,306,216,346,393,336,335,297,398],[224,572,378,491,379,345,353,325,368,247,583,157],[135,258,59,177,140,97,152,126,178,162,117,118,162,88],[194,365,216],[173,168,151,165,251,152,179,158,209],[255],[196,82,99,126],[172,152,135,181,170,168,222],[150,141,198],[161,215,186],[211,176,228],[172,259],[237,121,113,139,129,162,144,268,205,155,191,176,128,287],[186,208,215,70],[180,236,147,212,412,303,239,295,319,350,255,445,521,275,299,262,236,331,274,297,429,315,317,399,379,619,518,160],[354,276,253,352,363,504,307,321,443,464,296,403,315,608,348,171],[603,417,387,389,362,468,461,545,555,378,507,536,329,309,276,287,308,331,399,363,312,532,426,402],[383,194,291,417,381,574,382,498,334,312,441,404,315,279,234,301,242,361,385,285,264],[252,389,242,330,391,135,545,336,399,422,254,252,485,239,352,359,326,253,371,336,407,295,351,244,271,298,394,312],[272,230,214,208,183,184,231,344,274,176,312,151,138,200,283,197],[247,142,175,194,122,177,365,118,256,254,274,226,103,338,444,177],[225,153,148,155,186,136,172,216,135,166,274,224,127],[173,218,247,232,170,137],[194,173,156,235,215,182],[241,229,184,182],[250,192,174,142],[96,182,112,151,162],[111,145,137],[165,94,123,118,179,182],[167,193,113,173],[128,101,119],[167],[129,180,138,154,122,162,231,147,258,299,351,265,194],[207,201,144,141,185],[227,209,210,182,114],[186,221,184],[94,280,203,183,198],[114],[112],[232],[226,306,251,133,166,206,187,151,226,134,221,189,205,248,96,216,199,285,242,182,285,218]];
+var AJOHN={en:[384.5, 181.2, 296.4, 407.4, 377.5, 562.1, 386.8, 532.9, 351.1, 303.9, 439.2, 405.4, 321.7, 258.8, 218.5, 286.6, 227.1, 342.8, 381.2, 280.0, 323.8],ru:[469.3, 221.7, 339.3, 511.7, 460.1, 639.2, 435.1, 550.1, 351.6, 374.3, 487.6, 454.9, 344.2, 305.9, 275.1, 324.1, 272.5, 403.1, 428.8, 301.1, 303.3]};
+var AMUL={ru:1.13};
+/* Real chapter lengths. The app asks the recording itself (the in-app King James and Russian Synodal audio) for its length
+   and keeps the answer on this device (bb_alen). Any English version uses the King James times, Russian the Synodal times;
+   the figure is exact only when you are using that recording, otherwise it is "about". Chapters not measured yet use the estimate. */
+var ALEN=lsGet("bb_alen",{}),alBusy={},alFail={};
+(function(){function seed(t,a){a.forEach(function(x,i){var k=t+":42."+(i+1);if(!(ALEN[k]>0))ALEN[k]=x})}seed("kjv",AJOHN.en);seed("rst",AJOHN.ru)})();
+function atrKey(lg){return lg==="ru"?"rst":"kjv"}
+function alSkip(t,b){return t==="rst"&&(b===18||b===28||b===38)}   /* Russian numbers these books differently */
+function audLang(){var v=curVersion();return(v&&v.lang)||"en"}
+function unitSecsM(u,lg){
+  var t=atrKey(lg),k=t+":"+u.b+"."+u.c,m=ALEN[k]>0&&!alSkip(t,u.b),s=m?ALEN[k]:(ASEC[u.b]&&ASEC[u.b][u.c-1]||0)*(AMUL[lg]||1);
+  if(u.v1)s=s*(u.v2-u.v1+1)/PV[u.c-1];
+  return{s:s,m:m}}
+function daySecsM(sched){var lg=audLang(),t=0,all=true,n=0;sched.forEach(function(g){g.forEach(function(u){var r=unitSecsM(u,lg);t+=r.s;n++;if(!r.m)all=false})});return{s:t,all:all&&n>0}}
+function alProbe(k,url,done){
+  if(alBusy[k]||alFail[k]){done();return}
+  alBusy[k]=1;var a=new Audio(),fin=false,tm;
+  function end(d){if(fin)return;fin=true;clearTimeout(tm);a.onloadedmetadata=a.ondurationchange=a.onerror=null;try{a.removeAttribute("src");a.load()}catch(e){}
+    delete alBusy[k];if(d>0){ALEN[k]=Math.round(d*10)/10;lsSet("bb_alen",ALEN)}else alFail[k]=1;done()}
+  a.onloadedmetadata=a.ondurationchange=function(){if(isFinite(a.duration)&&a.duration>0)end(a.duration)};
+  a.onerror=function(){end(0)};tm=setTimeout(function(){end(0)},15000);
+  try{a.preload="metadata";a.src=url;a.load()}catch(e){end(0)}}
+/* measure the chapters of one day that have not been measured yet, one at a time, then call paint */
+function alFill(sched,paint){
+  if(!(window.BBReader&&BBReader.audioUrl))return;
+  var lg=audLang(),t=atrKey(lg),need=[],seen={};
+  sched.forEach(function(g){g.forEach(function(u){var k=t+":"+u.b+"."+u.c;if(!(ALEN[k]>0)&&!seen[k]&&!alFail[k]&&!alSkip(t,u.b)){seen[k]=1;need.push([k,u.b,u.c])}})});
+  need=need.slice(0,12);
+  (function next(){var x=need.shift();if(!x)return;var url=BBReader.audioUrl(t,x[1],x[2]);if(!url){next();return}
+    alProbe(x[0],url,function(){paint();next()})})()}
+function fmtDur(s){var m=Math.round(s/60);if(m<1)return"<1"+_(" min");if(m<60)return m+_(" min");var hr=Math.floor(m/60),r=m%60;return hr+" h"+(r?" "+r+_(" min"):"")}
+function audDayTxt(sched){var r=daySecsM(sched),v=curVersion(),exact=r.all&&v&&v.app===atrKey(audLang());
+  return _("Audio")+": "+(exact?"":_("about "))+fmtDur(r.s)}
 function planDayIndex(plan){return diffDays(todayStr(),plan.start)}
 function doneCount(plan){var n=0;for(var k in plan.done)if(plan.done[k])n++;return n}
 
@@ -489,7 +528,7 @@ VERSIONS.forEach(function(v){if(v.bgn)VN[v.id]=[v.bgn,"BibleGateway",v.bgl]});
    audio?: 1 yes, 0 no (from bible.com's own per-version audio flag); missing means unknown, so the app asks once after you look (YVA, kept on this device).
    yv/browse.json holds the rest of the bible.com catalog (languages the app doesn't otherwise offer), loaded only when "More languages on bible.com" is opened:
    {t:{tag:[[id,abbreviation,title,level,audio?]]},n:{tag:[englishName,localName]}}. These languages are Bible-only, like XLANGS: no translated menu. */
-var YVH="v2-2463langs";
+var YVH="v3-110langs";
 function yvGet(k,d){try{var x=localStorage.getItem(k);return x?JSON.parse(x):d}catch(e){return d}}
 function yvSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 var YVA=yvGet("bb_yvaudio",{}),YVD=null,YVALT={};
@@ -750,6 +789,11 @@ function renderPlansTab(){
       behind?h("span",{class:"bhic",role:"img","aria-label":_("You\u2019ve fallen behind")},[ic("alert-circle")]):null,"▶︎ Play all chapters"]);
     var circ=doneCircle(isDone,_f("Day {0} complete",[idx+1]),function(){setDayDone(plan,idx,true);renderPlansTab()},function(){setDayDone(plan,idx,false);renderPlansTab()},false,function(){dayMenu(plan,idx,renderPlansTab)});
     card.appendChild(h("div",{style:"margin-top:8px"},[play]));
+    var audP=null;
+    if(sched.some(function(g){return g.length})){
+      audP=h("p",{class:"muted small",style:"margin:6px 2px 0;text-align:center",text:audDayTxt(sched)});card.appendChild(audP);
+      alFill(sched,function(){if(audP&&audP.isConnected)audP.textContent=audDayTxt(sched)});
+    }
     var rows=h("div",{style:"margin-top:8px"});
     var ctx={plan:plan,d:idx,refresh:renderPlansTab};
     sched.forEach(function(units,gi){rows.appendChild(passageRow(units,GCOLORS[gi%GCOLORS.length],ctx))});
@@ -1446,7 +1490,43 @@ var LP_REC="bb_langs",LP_SEED="bb_langs_seed",LP_MIR="bb_lpmirror",LP_IDXK="bb_l
 var UI17={zh:1,es:1,ar:1,pt:1,ru:1,fr:1,de:1,ja:1,cs:1,fa:1,pl:1,pdt:1,ro:1,sk:1,sw:1,sv:1,th:1};
 /* languages whose menus are not translated yet: they work as Bible languages, and the menus use the substitute language shown here */
 XLANGS.push({"id":"kk","flag":"\ud83c\uddf0\ud83c\uddff","nat":"\u049a\u0430\u0437\u0430\u049b\u0448\u0430","en":"Kazakh"});
-var NOUI={kk:"ru",ckw:"es",kek:"es",qut:"es",jac:"es",mvc:"es",mvj:"es",usp:"es",ppl:"es",amu:"es",cco:"es",ngu:"es",chr:"en"};
+XLANGS.push({"id": "hy", "flag": "\ud83c\udde6\ud83c\uddf2", "nat": "\u0540\u0561\u0575\u0565\u0580\u0565\u0576", "en": "Armenian"});
+XLANGS.push({"id": "eu", "flag": "\ud83c\udf10", "nat": "Euskara", "en": "Basque"});
+XLANGS.push({"id": "be", "flag": "\ud83c\udde7\ud83c\uddfe", "nat": "\u0411\u0435\u043b\u0430\u0440\u0443\u0441\u043a\u0430\u044f", "en": "Belarusian"});
+XLANGS.push({"id": "br", "flag": "\ud83c\udf10", "nat": "Brezhoneg", "en": "Breton"});
+XLANGS.push({"id": "ca", "flag": "\ud83c\udf10", "nat": "Catal\u00e0", "en": "Catalan"});
+XLANGS.push({"id": "kw", "flag": "\ud83c\udf10", "nat": "Kernewek", "en": "Cornish"});
+XLANGS.push({"id": "co", "flag": "\ud83c\uddeb\ud83c\uddf7", "nat": "Corsu", "en": "Corsican"});
+XLANGS.push({"id": "eo", "flag": "\ud83c\udf10", "nat": "Esperanto", "en": "Esperanto"});
+XLANGS.push({"id": "et", "flag": "\ud83c\uddea\ud83c\uddea", "nat": "Eesti", "en": "Estonian"});
+XLANGS.push({"id": "fo", "flag": "\ud83c\uddeb\ud83c\uddf4", "nat": "F\u00f8royskt", "en": "Faroese"});
+XLANGS.push({"id": "gl", "flag": "\ud83c\udf10", "nat": "Galego", "en": "Galician"});
+XLANGS.push({"id": "ka", "flag": "\ud83c\uddec\ud83c\uddea", "nat": "\u10e5\u10d0\u10e0\u10d7\u10e3\u10da\u10d8", "en": "Georgian"});
+XLANGS.push({"id": "el", "flag": "\ud83c\uddec\ud83c\uddf7", "nat": "\u0395\u03bb\u03bb\u03b7\u03bd\u03b9\u03ba\u03ac", "en": "Greek (Modern)"});
+XLANGS.push({"id": "ga", "flag": "\ud83c\uddee\ud83c\uddea", "nat": "Gaeilge", "en": "Irish"});
+XLANGS.push({"id": "lv", "flag": "\ud83c\uddf1\ud83c\uddfb", "nat": "Latvie\u0161u", "en": "Latvian"});
+XLANGS.push({"id": "lt", "flag": "\ud83c\uddf1\ud83c\uddf9", "nat": "Lietuvi\u0173", "en": "Lithuanian"});
+XLANGS.push({"id": "mt", "flag": "\ud83c\uddf2\ud83c\uddf9", "nat": "Malti", "en": "Maltese"});
+XLANGS.push({"id": "gv", "flag": "\ud83c\uddee\ud83c\uddf2", "nat": "Gaelg", "en": "Manx"});
+XLANGS.push({"id": "gd", "flag": "\ud83c\udf10", "nat": "G\u00e0idhlig", "en": "Scots Gaelic"});
+XLANGS.push({"id": "sl", "flag": "\ud83c\uddf8\ud83c\uddee", "nat": "Sloven\u0161\u010dina", "en": "Slovenian"});
+XLANGS.push({"id": "tr", "flag": "\ud83c\uddf9\ud83c\uddf7", "nat": "T\u00fcrk\u00e7e", "en": "Turkish"});
+XLANGS.push({"id": "av", "flag": "\ud83c\udf10", "nat": "\u0410\u0432\u0430\u0440 \u043c\u0430\u0446\u04c0", "en": "Avaric"});
+XLANGS.push({"id": "ba", "flag": "\ud83c\udf10", "nat": "\u0411\u0430\u0448\u04a1\u043e\u0440\u0442\u0441\u0430", "en": "Bashkir"});
+XLANGS.push({"id": "ce", "flag": "\ud83c\udf10", "nat": "\u041d\u043e\u0445\u0447\u0438\u0439\u043d", "en": "Chechen"});
+XLANGS.push({"id": "cv", "flag": "\ud83c\udf10", "nat": "\u0427\u04d1\u0432\u0430\u0448\u043b\u0430", "en": "Chuvash"});
+XLANGS.push({"id": "ky", "flag": "\ud83c\uddf0\ud83c\uddec", "nat": "\u041a\u044b\u0440\u0433\u044b\u0437\u0447\u0430", "en": "Kyrgyz"});
+XLANGS.push({"id": "mn", "flag": "\ud83c\uddf2\ud83c\uddf3", "nat": "\u041c\u043e\u043d\u0433\u043e\u043b", "en": "Mongolian"});
+XLANGS.push({"id": "os", "flag": "\ud83c\udf10", "nat": "\u0418\u0440\u043e\u043d\u0430\u0443", "en": "Ossetian"});
+XLANGS.push({"id": "tg", "flag": "\ud83c\uddf9\ud83c\uddef", "nat": "\u0422\u043e\u04b7\u0438\u043a\u04e3", "en": "Tajik"});
+XLANGS.push({"id": "tt", "flag": "\ud83c\udf10", "nat": "\u0422\u0430\u0442\u0430\u0440\u0447\u0430", "en": "Tatar"});
+XLANGS.push({"id": "tk", "flag": "\ud83c\uddf9\ud83c\uddf2", "nat": "T\u00fcrkmen\u00e7e", "en": "Turkmen"});
+XLANGS.push({"id": "jv", "flag": "\ud83c\uddee\ud83c\udde9", "nat": "Basa Jawa", "en": "Javanese"});
+XLANGS.push({"id": "ms", "flag": "\ud83c\uddf2\ud83c\uddfe", "nat": "Bahasa Melayu", "en": "Malay"});
+XLANGS.push({"id": "ml", "flag": "\ud83c\uddee\ud83c\uddf3", "nat": "\u0d2e\u0d32\u0d2f\u0d3e\u0d33\u0d02", "en": "Malayalam"});
+XLANGS.push({"id": "my", "flag": "\ud83c\uddf2\ud83c\uddf2", "nat": "\u1019\u103c\u1014\u103a\u1019\u102c", "en": "Burmese"});
+XLANGS.push({"id": "si", "flag": "\ud83c\uddf1\ud83c\uddf0", "nat": "\u0dc3\u0dd2\u0d82\u0dc4\u0dbd", "en": "Sinhala"});
+var NOUI={kk:"ru",hy:"ru",eu:"es",be:"ru",br:"en",kw:"en",co:"en",eo:"en",fo:"en",ka:"ru",ga:"en",mt:"en",gv:"en",gd:"en",av:"ru",ba:"ru",ce:"ru",cv:"ru",ky:"ru",mn:"ru",os:"ru",tg:"ru",tt:"ru",tk:"ru",jv:"en",ml:"en",my:"en",si:"en",ckw:"es",kek:"es",qut:"es",jac:"es",mvc:"es",mvj:"es",usp:"es",ppl:"es",amu:"es",cco:"es",ngu:"es",chr:"en"};
 var NOUIN={ru:"\u041f\u043e\u043a\u0430 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u043e. \u041f\u043e\u043a\u0430 \u043c\u0435\u043d\u044e \u043d\u0430 \u0440\u0443\u0441\u0441\u043a\u043e\u043c.",es:"Aún no disponible. Por ahora, menús en español.",en:"Not available yet. For now, menus in English."};
 var lpIdx=null,lpBusy={},lpLoaded={},lpData={},lpSyncing=false;
 function lsGet(k,d){try{var v=JSON.parse(localStorage.getItem(k));return v==null?d:v}catch(e){return d}}
