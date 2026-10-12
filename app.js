@@ -742,7 +742,7 @@ function closeClock(){
     openApp(v,us[i].b,us[i].c,true,us.slice(i).map(function(u){return{b:u.b,c:u.c}}));
     seekReaderAudioOnce(resumeAt);
   }else if(firedToday)playTodaysReading(false);
-  else if(SWPENDING){SWPENDING=false;location.reload()}   // nothing to hand off right now, so this is the safe moment
+  else if(SWPENDING){SWPENDING=false;showUpdateSheet()}   // nothing to hand off right now, so this is the safe moment to ask
 }
 function openAlarmSheet(){
   openSheet(function(box){
@@ -2104,26 +2104,43 @@ if(ENTRY==="play"||ENTRY==="clock"){
 window.addEventListener('load',function(){dlScanSoon(4000)});
 
 /* PWA: offline support (only on real http(s) hosting) */
-/* a new service worker taking over means the files this page is already running from are now stale — reload to
-   pick up the fresh ones. The only files that carry over on their own either way are the downloaded Bible text
-   and audio (their own, separately named caches — see reader.js), never touched by any of this.
-   Deferred while the bedside alarm is actually on screen: reloading out from under an overnight alarm would be
-   worse than running one page behind until it closes. */
-var SWREG=null,SWPENDING=false;
+/* sw.js calls clients.claim() on every activation, including the very first one ever — so controllerchange fires
+   on a completely normal first open too, not just real updates. hadController is what tells the two apart: no
+   previous controller means this is just the page's first claim, not something to react to.
+   A new service worker taking over means the files this page is already running from are now stale, but we only
+   ever ASK about it (never reload on our own) — and not even that while the bedside alarm is on screen, since
+   popping a sheet (or reloading) out from under an overnight alarm would be worse than running one version behind
+   until it closes. The downloaded Bible text and audio live in their own, separately named caches (reader.js),
+   never touched by any of this either way. */
+var SWREG=null,SWPENDING=false,UPDATE_READY=false,hadController=false;
 (function(){
   try{
     if(!('serviceWorker' in navigator)||!/^https?:$/.test(location.protocol))return;
+    hadController=!!navigator.serviceWorker.controller;
     window.addEventListener('load',function(){
       navigator.serviceWorker.register('sw.js').then(function(reg){SWREG=reg}).catch(function(){});
     });
     navigator.serviceWorker.addEventListener('controllerchange',function(){
+      if(!hadController){hadController=true;return}
+      UPDATE_READY=true;
       if(CLK&&CLK.open){SWPENDING=true;return}
-      location.reload();
+      showUpdateSheet();
     });
   }catch(e){}
 })();
+function showUpdateSheet(){
+  openSheet(function(box){
+    box.appendChild(sheetHead("Update available"));
+    box.appendChild(h("p",{class:"muted",text:"A new version of Bible Bridge is ready. Your plans, downloads and progress are kept either way."}));
+    box.appendChild(h("div",{style:"display:grid;gap:8px;margin-top:12px"},[
+      h("button",{class:"btn",type:"button",onclick:function(){location.reload()}},["Update now"]),
+      h("button",{class:"btn ghost",type:"button",onclick:closeSheet},["Not now"])
+    ]));
+  });
+}
 function checkForUpdates(){
   if(!('serviceWorker' in navigator)){toast("This browser doesn’t support checking for updates");return}
+  if(UPDATE_READY){showUpdateSheet();return}
   toast("Checking for updates…");
   (SWREG?Promise.resolve(SWREG):navigator.serviceWorker.getRegistration()).then(function(reg){
     if(!reg){toast("Couldn’t check right now");return}
@@ -2132,7 +2149,7 @@ function checkForUpdates(){
     reg.addEventListener("updatefound",function(){
       found=true;
       var sw=reg.installing;if(!sw)return;
-      sw.addEventListener("statechange",function(){if(sw.state==="activated")toast("Updated — refreshing…")});
+      sw.addEventListener("statechange",function(){if(sw.state==="activated")toast("Update ready")});
     },{once:true});
     reg.update().then(function(){
       setTimeout(function(){if(!found)toast("You’re already on the latest version")},1500);
