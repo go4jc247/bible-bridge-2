@@ -246,7 +246,11 @@ a.cnum{font:600 16px var(--sans);text-decoration:none;text-align:center;backgrou
 .linkbtn{border:0;background:transparent;color:var(--muted);font:600 13px var(--sans);text-decoration:underline;cursor:pointer;min-height:40px}
 
 /* splash */
-#splash{position:fixed;inset:0;z-index:35;background:#dbe8f6 var(--spbg) center bottom/cover no-repeat;display:flex;justify-content:center;overflow:hidden;transition:opacity .6s ease;cursor:pointer;-webkit-tap-highlight-color:transparent}
+/* height set explicitly (not just inset:0's implied one) because mobile Safari's address bar is still animating
+   away when this first paints — inset:0 alone sizes against that pre-collapse viewport, then visibly snaps once
+   it settles a fraction of a second later. 100dvh tracks the real, current visible area instead; 100vh stays as
+   the fallback for the rare browser that predates dvh support. */
+#splash{position:fixed;top:0;left:0;right:0;height:100vh;height:100dvh;z-index:35;background:#dbe8f6 var(--spbg) center bottom/cover no-repeat;display:flex;justify-content:center;overflow:hidden;transition:opacity .6s ease;cursor:pointer;-webkit-tap-highlight-color:transparent}
 #splash.out{opacity:0;pointer-events:none}
 #splash.gone{display:none}
 .spwrap{width:100%;max-width:440px;padding:calc(env(safe-area-inset-top,0px) + 6vh) 26px 0;display:flex;flex-direction:column;align-items:center;text-align:center;color:#0c3e78;font-family:"Nunito Sans",system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans","Noto Sans Arabic","Noto Sans Thai","Noto Sans CJK SC","Noto Sans CJK JP",sans-serif}
