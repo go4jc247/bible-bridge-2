@@ -1,3 +1,12 @@
+/* reader.js watches for a #/read/<version>/<book>/<chapter> URL and reopens itself straight into that chapter the
+   moment it loads — on its own, with no say from app.js. That hash gets left behind by any normal reader visit
+   (including the bedside alarm's handoff) and isn't cleared just by leaving the reader on screen or backgrounding
+   the app, so the NEXT launch can find it still sitting in the address bar. app.js always finishes running before
+   reader.js even starts (plain, non-deferred <script> tags, in that order in index.html), so clearing it here
+   — before reader.js gets a chance to look — stops it from racing the splash screen and hijacking the opening
+   animation into the reader mid-transition. The deliberate, visible "Continue reading" card already covers
+   picking back up where you left off; this hash-based path was never the one actually providing that. */
+if(/^#\/read\//.test(location.hash)){try{history.replaceState(null,"",location.pathname+location.search)}catch(e){}}
 document.getElementById("spLogo").src=IMG.logo;
 
 
