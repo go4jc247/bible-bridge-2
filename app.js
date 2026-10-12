@@ -667,7 +667,7 @@ function openClock(){
   var time=h("div",{class:"clkTime",text:"--:--"}),ap=h("div",{class:"clkAp",text:""}),date=h("div",{class:"clkDate",text:""});
   var alarmNote=h("div",{class:"clkAlarm",text:state.prefs.alarmOn?"Alarm "+fmtAlarmTime(state.prefs.alarmTime):"No alarm set"});
   var prompt=h("button",{class:"dpTap clkPrompt",type:"button"},["Tap to snooze"]);
-  var close=h("button",{class:"xbtn dpClose",type:"button","aria-label":"Turn off and go to the reading plan",onclick:function(){closeClock()}},[ic("x")]);
+  var close=h("button",{class:"xbtn dpClose",type:"button","aria-label":"Turn off alarm",onclick:function(){closeClock()}},[ic("x")]);
   root.appendChild(close);root.appendChild(h("div",{class:"clkFace"},[time,ap,date,alarmNote]));root.appendChild(prompt);
   CLK.face={root:root,time:time,ap:ap,date:date,prompt:prompt};
   CLK.open=true;
@@ -676,17 +676,19 @@ function openClock(){
   clkTick();
   CLK.timer=setInterval(clkTick,10000);
 }
-/* the X always means "turn off": pause and back up 10 seconds (harmless no-op if nothing was playing),
-   then the clock just disappears — whatever was behind it (the reading plan) is what you see next. */
+/* the X always means "turn off": if the alarm had started reading, hand off to the in-app reader at the
+   beginning of whatever chapter was playing (or paused on, if snoozed) — not mid-sentence, just that chapter's
+   start, so no exact-position handoff is needed. Otherwise the clock just disappears onto whatever was behind it. */
 function closeClock(){
   CLK.open=false;
   if(CLK.timer){clearInterval(CLK.timer);CLK.timer=null}
-  if(ALM.audio)almPauseRewind();
+  var v=ALM.v,us=ALM.us,i=ALM.i;
   almClear();
   state.snoozeUntil=null;save();
   clkWlRelease();
   CLK.face=null;
   hideScreen();
+  if(v&&us&&i<us.length)openApp(v,us[i].b,us[i].c,true,us.slice(i).map(function(u){return{b:u.b,c:u.c}}));
 }
 function openAlarmSheet(){
   openSheet(function(box){
