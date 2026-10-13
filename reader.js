@@ -540,6 +540,7 @@
   var resumeOff = null;        // {b,c,off} used once, when reopening the reader at the saved spot
   var lastSave = 0;
   var preClipPlaying = false, preClipCb = null, preClipGen = 0;   // a short "book name" clip ahead of the first real chapter of a day
+  var pendingChapterStart = null;   // {b,c} once the clip has ended but the chapter text hasn't rendered yet
   var openSeq = 0;
 
   var A = new Audio();
@@ -777,9 +778,14 @@
         readOff = resumeOff.off;
       }
       resumeOff = null;
-      markPlaying();
-      updatePlayerIdle();
-      persist();
+      if (pendingChapterStart && same(pendingChapterStart, { b: b, c: c })) {
+        pendingChapterStart = null;
+        playChapter(b, c);   // the book-name clip finished before the text did -- start now, fresh, at the top
+      } else {
+        markPlaying();
+        updatePlayerIdle();
+        persist();
+      }
       kick();
       prefetchAfter({ b: b, c: c });
       // load the next chapter in the background so it is already there when you reach the bottom
@@ -870,6 +876,14 @@
       if (gen !== preClipGen) return;   // superseded by a newer open() call
       preClipPlaying = false; preClipCb = null; cb();
     });
+  }
+
+  // the clip ending doesn't mean the chapter is ready to read yet -- if the text is still loading (a slow
+  // connection can easily take longer than a 1-2 second clip), wait for openReader to finish it first, so the
+  // follow-along scroll starts fresh at the top instead of jumping to catch up on audio that got a head start
+  function startChapterWhenReady(b, c) {
+    if (view === "reader" && findRendered({ b: b, c: c })) { playChapter(b, c); return; }
+    pendingChapterStart = { b: b, c: c };
   }
 
   function playChapter(b, c) {
@@ -1332,6 +1346,7 @@
     A.pause();
     isOpen = false; view = "closed";
     openSeq++;
+    pendingChapterStart = null;
     closeTrMenu();
     sband.classList.remove("on");
     root.hidden = true;
@@ -1367,7 +1382,7 @@
     refreshPlayerVisibility();
     if (o.play && tr.audio) {   // started right here, inside the tap, so the browser allows sound
       var clipUrl = o.bookClip ? bookNameClipUrl(t, b, c) : "";
-      if (clipUrl) playPreClip(clipUrl, function () { playChapter(b, c); });
+      if (clipUrl) playPreClip(clipUrl, function () { startChapterWhenReady(b, c); });
       else playChapter(b, c);
     }
     getIndex(t.id).then(function () {
