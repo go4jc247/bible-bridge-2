@@ -6,6 +6,7 @@
    — before reader.js gets a chance to look — stops it from racing the splash screen and hijacking the opening
    animation into the reader mid-transition. The deliberate, visible "Continue reading" card already covers
    picking back up where you left off; this hash-based path was never the one actually providing that. */
+if(/(^|[?&])go=review(&|$)/.test(location.search)){location.replace("booknames/review.html");}
 if(/^#\/read\//.test(location.hash)){try{history.replaceState(null,"",location.pathname+location.search)}catch(e){}}
 document.getElementById("spLogo").src=IMG.logo;
 
