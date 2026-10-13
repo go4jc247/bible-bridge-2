@@ -241,7 +241,7 @@ btnCorrect.onclick = function(){ setMark("correct"); };
 btnWrong.onclick = function(){ setMark("wrong"); };
 
 replayBtn.onclick = function(){
-  if(editActive){ previewEditCut(); return; }
+  if(editActive){ previewEditCut(true); return; }
   var c = CLIPS[cur], ai = altIndex[c.id];
   if(ai != null && ai >= 0 && c.alternatives[ai]) player.currentTime = c.alternatives[ai].start;
   else player.currentTime = 0;
@@ -296,14 +296,14 @@ function buildMsRow(row, sign){
 buildMsRow(msMinusRow, -1);
 buildMsRow(msPlusRow, 1);
 
-function previewEditCut(){
+function previewEditCut(full){
   var c = CLIPS[cur];
   var cutNow = currentCut(c);
   var trKey = c.translation === "KJV" ? "kjv" : "rst";
   var src = "raw/" + trKey + "/" + c.file + ".mp3";
   if(player.getAttribute("src") !== src) player.src = src;
   editStopAt = cutNow;
-  var start = Math.max(0, cutNow - 1.0);
+  var start = full ? 0 : Math.max(0, cutNow - 1.0); // full = whole clip, else last 1s
   var doPlay = function(){
     player.currentTime = start;
     player.playbackRate = rate;
