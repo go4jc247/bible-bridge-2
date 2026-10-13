@@ -578,9 +578,10 @@ function fmtAlarmTime(hhmm){
    Snooze pauses it and backs up 10 seconds; resuming just un-pauses the same Audio object, it doesn't start over. */
 var ALM={audio:null,us:null,i:0,v:null,pre:false};
 function almChapterUrl(v,u){return(window.BBReader&&BBReader.audioUrl&&v.app)?BBReader.audioUrl(v.app,u.b,u.c):""}
-// the short "[Book name]" clip that leads the day off when it starts mid-book, for the two readers we have one for
+// the short "[Book name]" clip that leads the day off when it starts mid-book -- KJV only: the Russian Synodal
+// recording already names the book at the start of every chapter, so the clip would just be a duplicate there.
 function almBookClipUrl(v,u){
-  if(!v||(v.app!=="kjv"&&v.app!=="rst")||u.c<=1)return"";
+  if(!v||v.app!=="kjv"||u.c<=1)return"";
   return "audio/booknames/"+v.app+"/"+pad(u.b+1,2)+"_"+BEN[u.b].replace(/ /g,"")+".mp3";
 }
 /* the one Audio() element this page session ever creates. A browser trusts an element to keep playing on a later,

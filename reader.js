@@ -568,9 +568,11 @@
     }
     return KJV_BASE + pad(b + 1, 2) + "_" + KJV_AUD[b] + (NO_NUM[b] ? "" : pad(c, 3)) + ".mp3";
   }
-  // the short "[Book name]" announcement that leads a day starting mid-book, for the two readers we have one for
+  // the short "[Book name]" announcement that leads a day starting mid-book -- KJV only: the Russian Synodal
+  // recording already names the book at the start of every chapter, so the clip would just be a duplicate there.
+  // (audio/booknames/rst/ clips stay on disk and this still returns a URL for them if re-enabled later.)
   function bookNameClipUrl(t, b, c) {
-    if (!t || (t.audio !== "kjv" && t.audio !== "rst") || c <= 1) return "";
+    if (!t || t.audio !== "kjv" || c <= 1) return "";
     return "audio/booknames/" + t.audio + "/" + pad(b + 1, 2) + "_" + NAMES.en[b].replace(/ /g, "") + ".mp3";
   }
   var seqList = null;   // a day's reading in plan order, e.g. Genesis 2, Job 1, Isaiah 1; null = normal Bible order
