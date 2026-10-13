@@ -6,7 +6,6 @@
    — before reader.js gets a chance to look — stops it from racing the splash screen and hijacking the opening
    animation into the reader mid-transition. The deliberate, visible "Continue reading" card already covers
    picking back up where you left off; this hash-based path was never the one actually providing that. */
-if(/(^|[?&])go=review(&|$)/.test(location.search)){location.replace("booknames/review.html");}
 if(/^#\/read\//.test(location.hash)){try{history.replaceState(null,"",location.pathname+location.search)}catch(e){}}
 document.getElementById("spLogo").src=IMG.logo;
 
@@ -469,8 +468,8 @@ function linkSheet(title,sub,listen,read,back,onGo,unkL,edit){
 /* the reader tells the app when it has loaded or closed, so the Continue reading card stays current */
 window.onBBReader=function(what){try{if(what==="opened"&&typeof splashGo==="function")splashGo();renderBibleTab();if(what==="closed")refreshPlanViews()}catch(e){}};
 window.onBBChapterDone=function(tr,b,c){try{markPlayed(b,c)}catch(e){}};
-function openApp(v,b,c,play,list){
-  if(window.BBReader&&BBReader.open(v.app,b,c,{play:!!play,list:list||null}))return;
+function openApp(v,b,c,play,list,bookClip){
+  if(window.BBReader&&BBReader.open(v.app,b,c,{play:!!play,list:list||null,bookClip:!!bookClip}))return;
   toast("The reader could not start. Reload the app and try again.");
 }
 function choosePlayMethod(b,c,u,back,onGo){
@@ -498,7 +497,7 @@ function choosePlayDay(plan,idx){
   var title=_f("Day {0} · all chapters",[idx+1]);
   if(!us.length){linkSheet(title,"Rest day.",null,null);return}
   var aOK=us.every(function(u){return availFor(v,u.b,false)}),rOK=us.every(function(u){return availFor(v,u.b,true)});
-  if(v.app){closeSheet();openApp(v,us[0].b,us[0].c,aOK,us.map(function(u){return{b:u.b,c:u.c}}));return}
+  if(v.app){closeSheet();openApp(v,us[0].b,us[0].c,aOK,us.map(function(u){return{b:u.b,c:u.c}}),true);return}
   var alt=yvAlt(v),L=[],R=[],unk=false;
   if(!v.yvOnly){
     if(aOK)L.push({site:"BibleGateway",href:bgAudioUrl(plan,idx,v)});
@@ -542,7 +541,7 @@ function bestDailySource(forAlarm){
   return{ok:false,msg:"No reading available for today in this version."};
 }
 function runDailySource(d){
-  if(d.kind==="app")openApp(d.v,d.us[0].b,d.us[0].c,true,d.us.map(function(u){return{b:u.b,c:u.c}}));
+  if(d.kind==="app")openApp(d.v,d.us[0].b,d.us[0].c,true,d.us.map(function(u){return{b:u.b,c:u.c}}),true);
   else if(d.kind==="app-text")openApp(d.v,d.us[0].b,d.us[0].c,false,d.us.map(function(u){return{b:u.b,c:u.c}}));
   else if(d.kind==="bg-audio")window.open(bgAudioUrl(d.plan,d.idx,d.v),"_blank","noopener");
   else if(d.kind==="yv-audio")window.open(yvUrl(d.alt,d.us[0].b,d.us[0].c,true),"_blank","noopener");
@@ -577,8 +576,13 @@ function fmtAlarmTime(hhmm){
 }
 /* its own dedicated player for the in-app case — never opens the visual reader, so the clock stays the only thing on screen.
    Snooze pauses it and backs up 10 seconds; resuming just un-pauses the same Audio object, it doesn't start over. */
-var ALM={audio:null,us:null,i:0,v:null};
+var ALM={audio:null,us:null,i:0,v:null,pre:false};
 function almChapterUrl(v,u){return(window.BBReader&&BBReader.audioUrl&&v.app)?BBReader.audioUrl(v.app,u.b,u.c):""}
+// the short "[Book name]" clip that leads the day off when it starts mid-book, for the two readers we have one for
+function almBookClipUrl(v,u){
+  if(!v||(v.app!=="kjv"&&v.app!=="rst")||u.c<=1)return"";
+  return "audio/booknames/"+v.app+"/"+pad(u.b+1,2)+"_"+BEN[u.b].replace(/ /g,"")+".mp3";
+}
 /* the one Audio() element this page session ever creates. A browser trusts an element to keep playing on a later,
    unattended call only once THAT SAME element has played inside a real tap — a fresh new Audio() always gets
    refused. So this gets created and "unlocked" (played a moment, muted, then paused) the instant you tap into the
@@ -618,14 +622,21 @@ function almTryPlay(onOk,onBlocked){
 function almStart(d){
   var a=almAudio();
   ALM.audio=a;ALM.us=d.us;ALM.i=0;ALM.v=d.v;
+  var clipUrl=almBookClipUrl(d.v,d.us[0]);
+  ALM.pre=!!clipUrl;
   a.onended=function(){
+    if(ALM.pre){ALM.pre=false;if(almLoadChapter())almTryPlay(null,clkNeedsTap);else almClear();return}
     ALM.i++;
     if(ALM.i<ALM.us.length){if(almLoadChapter())almTryPlay(null,clkNeedsTap);return}
     almClear();
     if(CLK.face)clkRingingOff();   // today's reading finished playing on its own
   };
+  a.onerror=function(){   // a missing/bad clip: just skip straight to the chapter
+    if(ALM.pre){ALM.pre=false;if(almLoadChapter())almTryPlay(null,clkNeedsTap);else almClear()}
+  };
   a.volume=0;
-  if(almLoadChapter())almTryPlay(almOnPlaying,clkNeedsTap);
+  if(clipUrl){a.src=clipUrl;a.currentTime=0;almTryPlay(almOnPlaying,clkNeedsTap)}
+  else if(almLoadChapter())almTryPlay(almOnPlaying,clkNeedsTap);
   markOpenedDay(d.plan,d.idx);
 }
 function almOnPlaying(){
@@ -647,7 +658,7 @@ function almPauseRewind(){
    element so tomorrow's alarm (or a snooze later tonight) can keep using it without needing another tap. */
 function almClear(){
   if(ALM.audio){try{ALM.audio.pause()}catch(e){}}
-  ALM={audio:null,us:null,i:0,v:null};
+  ALM={audio:null,us:null,i:0,v:null,pre:false};
 }
 var CLK={open:false,wl:null,fadeIv:null,face:null};
 function clkWlRequest(){
@@ -741,7 +752,7 @@ function closeClock(){
   CLK.open=false;
   if(CLK.timer){clearInterval(CLK.timer);CLK.timer=null}
   var v=ALM.v,us=ALM.us,i=ALM.i;
-  var resumeAt=ALM.audio?ALM.audio.currentTime:0;
+  var resumeAt=(ALM.audio&&!ALM.pre)?ALM.audio.currentTime:0;   // still on the book-name clip: nothing to seek to yet
   var firedToday=state.alarmFiredDate===new Date().toDateString();
   almClear();
   state.snoozeUntil=null;save();

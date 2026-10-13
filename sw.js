@@ -1,6 +1,6 @@
 /* Bible Bridge service worker.
    Change VERSION whenever you upload a new index.html so phones pick up the update. */
-const VERSION = 'v3.3.4';
+const VERSION = 'v3.4.0';
 const CACHE = 'bible-bridge-' + VERSION;
 const CORE = ['./', 'index.html', 'style.css', 'app.js', 'images.js', 'reader.js', 'reader.css', 'manifest.webmanifest'];
 
@@ -52,8 +52,17 @@ self.addEventListener('fetch', event => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;           // fonts, Bible sites, etc. go straight to the network
   if (/\/lang\/[^/]+\.json$/.test(url.pathname)) return;   // language packs: the app fetches and keeps these itself
-  if (req.headers.has('range')) return;                      // Bible text is read piece by piece (byte ranges): the reader keeps its own offline copy
   if (req.mode === 'navigate') { event.respondWith(openApp(req)); return; }
+  if (/\/audio\/booknames\//.test(url.pathname)) {   // tiny book-name clips: cache the FULL file on first play, ignoring any Range header
+    event.respondWith(
+      caches.match(req).then(hit => hit || fetch(req.url).then(res => {
+        if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
+        return res;
+      }))
+    );
+    return;
+  }
+  if (req.headers.has('range')) return;                      // Bible text is read piece by piece (byte ranges): the reader keeps its own offline copy
   event.respondWith(
     caches.match(req).then(hit => {
       const refresh = fetch(req).then(res => {

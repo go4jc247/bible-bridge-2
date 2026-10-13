@@ -539,6 +539,7 @@
   var rewound = false;         // true until playback moves on after a restore (so we don't rewind twice)
   var resumeOff = null;        // {b,c,off} used once, when reopening the reader at the saved spot
   var lastSave = 0;
+  var preClipPlaying = false, preClipCb = null, preClipGen = 0;   // a short "book name" clip ahead of the first real chapter of a day
   var openSeq = 0;
 
   var A = new Audio();
@@ -565,6 +566,11 @@
       return DBS_BASE + (b < 39 ? "OT" : "NT") + "_RUSS76/" + n + "/" + n + "_" + pad(c, 3) + ".mp3";
     }
     return KJV_BASE + pad(b + 1, 2) + "_" + KJV_AUD[b] + (NO_NUM[b] ? "" : pad(c, 3)) + ".mp3";
+  }
+  // the short "[Book name]" announcement that leads a day starting mid-book, for the two readers we have one for
+  function bookNameClipUrl(t, b, c) {
+    if (!t || (t.audio !== "kjv" && t.audio !== "rst") || c <= 1) return "";
+    return "audio/booknames/" + t.audio + "/" + pad(b + 1, 2) + "_" + NAMES.en[b].replace(/ /g, "") + ".mp3";
   }
   var seqList = null;   // a day's reading in plan order, e.g. Genesis 2, Job 1, Isaiah 1; null = normal Bible order
   function seqIx(p) { if (seqList) for (var i = 0; i < seqList.length; i++) if (same(seqList[i], p)) return i; return -1; }
@@ -850,6 +856,22 @@
   /* ---------- audio ---------- */
   function setMsg(t) { $("#rd-pmsg").textContent = t || ""; }
 
+  // plays a short clip on the same <audio> element first (so it inherits the tap that's allowing sound),
+  // then hands off to cb -- used to lead a day's audio with the book name when it starts mid-book
+  function playPreClip(url, cb) {
+    var gen = ++preClipGen;   // guards against a stale play()-rejection landing after a newer open() call took over
+    preClipPlaying = true; preClipCb = cb;
+    try { A.pause(); A.removeAttribute("src"); A.load(); } catch (e) {}
+    A.src = url;
+    A.currentTime = 0;
+    setMsg(T().loading);
+    var pr = A.play();
+    if (pr && pr.catch) pr.catch(function () {
+      if (gen !== preClipGen) return;   // superseded by a newer open() call
+      preClipPlaying = false; preClipCb = null; cb();
+    });
+  }
+
   function playChapter(b, c) {
     playing = { b: b, c: c };
     preloadedFor = "";
@@ -982,6 +1004,7 @@
   }
 
   function onEnded() {
+    if (preClipPlaying) { preClipPlaying = false; var cb = preClipCb; preClipCb = null; if (cb) cb(); return; }
     var ended = playing;
     try { if (ended && typeof window.onBBChapterDone === "function") window.onBBChapterDone(tr && tr.id, ended.b, ended.c); } catch (e) {}
     var n = nextOf(ended);
@@ -1342,7 +1365,11 @@
     applyStrings(); showRate(); showFollow();
     view = "loading";
     refreshPlayerVisibility();
-    if (o.play && tr.audio) playChapter(b, c);   // started right here, inside the tap, so the browser allows sound
+    if (o.play && tr.audio) {   // started right here, inside the tap, so the browser allows sound
+      var clipUrl = o.bookClip ? bookNameClipUrl(t, b, c) : "";
+      if (clipUrl) playPreClip(clipUrl, function () { playChapter(b, c); });
+      else playChapter(b, c);
+    }
     getIndex(t.id).then(function () {
       if (tr !== t || !isOpen) return;
       D = Ds[t.id];
@@ -1375,6 +1402,7 @@
     A.addEventListener("canplaythrough", function () { setMsg(""); preloadNext(); });
     A.addEventListener("ended", onEnded);
     A.addEventListener("error", function () {
+      if (preClipPlaying) { preClipPlaying = false; var cb = preClipCb; preClipCb = null; if (cb) cb(); return; }   // missing/bad clip: just skip to the chapter
       if (!playing) return;
       setMsg(T().failLoad);
       updatePP();
