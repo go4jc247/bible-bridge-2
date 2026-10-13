@@ -662,8 +662,10 @@ function almClear(){
   ALM={audio:null,us:null,i:0,v:null,pre:false};
 }
 var CLK={open:false,wl:null,fadeIv:null,face:null};
+/* held whenever the alarm is armed, not just while the clock screen is on screen — otherwise the phone could
+   still lock itself to sleep (and suspend all JS, including the watch timer below) on any other screen. */
 function clkWlRequest(){
-  if(!CLK.open||!("wakeLock" in navigator))return;
+  if(!(CLK.open||state.prefs.alarmOn)||!("wakeLock" in navigator))return;
   navigator.wakeLock.request("screen").then(function(wl){CLK.wl=wl}).catch(function(){});
 }
 function clkWlRelease(){if(CLK.wl){try{CLK.wl.release()}catch(e){}CLK.wl=null}}
@@ -711,16 +713,47 @@ function clkTick(){
   face.time.textContent=h12+":"+(mm<10?"0":"")+mm;
   face.ap.textContent=ap;
   face.date.textContent=now.toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"});
+}
+/* the actual "is it time yet" check -- runs on its own watch timer (see armAlarmWatch below) whether or not
+   the clock screen happens to be the thing on screen right now, so the alarm isn't tied to that one screen. */
+function checkAlarmDue(){
   if(!state.prefs.alarmOn)return;
   if(state.snoozeUntil){
-    if(Date.now()>=state.snoozeUntil){state.snoozeUntil=null;save();clkFire()}
+    if(Date.now()>=state.snoozeUntil){state.snoozeUntil=null;save();fireAlarmNow()}
     return;
   }
+  var now=new Date(),hh=now.getHours(),mm=now.getMinutes();
   var hhmm=(hh<10?"0":"")+hh+":"+(mm<10?"0":"")+mm,today=now.toDateString();
-  if(hhmm===state.prefs.alarmTime&&state.alarmFiredDate!==today){state.alarmFiredDate=today;save();clkFire()}
+  if(hhmm===state.prefs.alarmTime&&state.alarmFiredDate!==today){state.alarmFiredDate=today;save();fireAlarmNow()}
 }
+function fireAlarmNow(){
+  if(!CLK.open){closeSheet();openClock()}   // bring the ringing face up even if you were somewhere else in the app
+  clkFire();
+}
+var ALARMWATCH=null;
+/* armed whenever the alarm preference is on -- turning it on, or opening the app with it already on, starts this;
+   it's what lets the alarm fire from any screen, not just the bedside clock one. */
+function armAlarmWatch(){
+  clkWlRequest();
+  if(ALARMWATCH)return;
+  checkAlarmDue();   // in case the time was already due the moment this armed
+  ALARMWATCH=setInterval(checkAlarmDue,15000);
+}
+function disarmAlarmWatch(){
+  if(ALARMWATCH){clearInterval(ALARMWATCH);ALARMWATCH=null}
+  if(!CLK.open)clkWlRelease();
+}
+/* unlocking the alarm's audio element needs one real tap, but it no longer has to be specifically on the
+   clock or alarm screens -- any tap anywhere, the first one after the alarm is on, does it. */
+var primedOnce=false;
+document.addEventListener("click",function(){
+  if(primedOnce||!state.prefs.alarmOn)return;
+  primedOnce=true;
+  almPrime();
+});
 function openClock(){
   almPrime();   // the tap that opens this screen is what unlocks audio for the alarm, hours from now, with no further tap
+  armAlarmWatch();
   var root=h("div",{class:"dpWrap dpClock"});
   var time=h("div",{class:"clkTime",text:"--:--"}),ap=h("div",{class:"clkAp",text:""}),date=h("div",{class:"clkDate",text:""});
   var alarmNote=h("div",{class:"clkAlarm",text:state.prefs.alarmOn?"Alarm "+fmtAlarmTime(state.prefs.alarmTime):"No alarm set"});
@@ -757,7 +790,7 @@ function closeClock(){
   var firedToday=state.alarmFiredDate===new Date().toDateString();
   almClear();
   state.snoozeUntil=null;save();
-  clkWlRelease();
+  if(!state.prefs.alarmOn)clkWlRelease();   // still armed: keep the screen awake for the watch timer even off this screen
   CLK.face=null;
   hideScreen();
   if(v&&us&&i<us.length){
@@ -769,11 +802,13 @@ function closeClock(){
 function openAlarmSheet(){
   openSheet(function(box){
     box.appendChild(sheetHead("Bedside alarm",null));
-    box.appendChild(h("p",{class:"note",text:"Open the bedside clock below before bed — that’s what lets the alarm play without a tap in the morning. Keep Bible Bridge open and your screen from sleeping (Settings on iPhone), plug in. Needs an in-app audio version (KJV or Russian Synodal) — BibleGateway and bible.com versions always need a tap to open."}));
+    box.appendChild(h("p",{class:"note",text:"Turning this on is what lets the alarm play without a tap in the morning — you don’t have to leave the bedside clock open; any screen in the app is fine. Keep Bible Bridge open and your screen from sleeping (Settings on iPhone), plug in. Needs an in-app audio version (KJV or Russian Synodal) — BibleGateway and bible.com versions always need a tap to open."}));
     var time=h("input",{type:"time",value:state.prefs.alarmTime||"06:30","aria-label":"Alarm time"});
     box.appendChild(h("div",{class:"field"},[h("label",{text:"Time"}),time]));
     var onBtn=h("button",{class:"btn"+(state.prefs.alarmOn?"":" ghost"),type:"button",style:"margin-top:10px",onclick:function(){
-      state.prefs.alarmOn=!state.prefs.alarmOn;state.alarmFiredDate=null;state.snoozeUntil=null;save();refreshAll();closeSheet();openAlarmSheet();
+      state.prefs.alarmOn=!state.prefs.alarmOn;state.alarmFiredDate=null;state.snoozeUntil=null;save();
+      if(state.prefs.alarmOn){almPrime();armAlarmWatch()}else disarmAlarmWatch();
+      refreshAll();closeSheet();openAlarmSheet();
     }},[state.prefs.alarmOn?"Alarm is on":"Alarm is off — tap to turn on"]);
     time.onchange=function(){state.prefs.alarmTime=time.value||"06:30";state.alarmFiredDate=null;save();renderControls()};
     box.appendChild(onBtn);
@@ -1963,6 +1998,7 @@ yvBoot();load();applyTheme();lpBoot();yvBrowseRestore();
 $("tpi").innerHTML=ic("calendar-event").innerHTML;$("tpg").innerHTML=ic("chevron-right").innerHTML;
 $("tbi").innerHTML=ic("book-2").innerHTML;$("tbg").innerHTML=ic("chevron-right").innerHTML;
 refreshAll();setTab(state.prefs.tab==="bible"?"bible":"plans");
+if(state.prefs.alarmOn)armAlarmWatch();   // picking back up on reopen -- no need to revisit the clock screen
 /* a Home Screen / Shortcuts link can land straight on the tap-to-play page or the bedside clock, skipping the splash
    (the splash sits above #screen, so it has to be hidden outright, not just left un-started) */
 var ENTRY=new URLSearchParams(location.search).get("go");
