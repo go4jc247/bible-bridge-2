@@ -55,6 +55,14 @@ HTML = """<!doctype html>
     color:var(--muted);font-size:13px;font-weight:600;cursor:pointer}
   textarea{width:100%;min-height:36px;margin-top:8px;border-radius:10px;border:1.5px solid var(--line);
     background:var(--bg);color:var(--ink);padding:8px;font:13px inherit;resize:vertical}
+  .editbox{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+  .editRow{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--muted);margin-bottom:8px}
+  .editRow .cutval{color:var(--ink);font-weight:700}
+  .linkbtn{border:0;background:transparent;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;padding:0}
+  .msRow{display:flex;gap:4px;margin-bottom:6px}
+  .msBtn{flex:1;min-height:34px;border-radius:8px;border:1.5px solid var(--line);background:transparent;
+    color:var(--ink);font-size:10.5px;font-weight:700;cursor:pointer;padding:0 2px}
+  .msBtn:active{opacity:.8}
   .list{margin-top:22px}
   .list h2{font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
   .litem{display:flex;justify-content:space-between;gap:8px;padding:9px 4px;border-bottom:1px solid var(--line);
@@ -97,8 +105,17 @@ HTML = """<!doctype html>
       <button class="btn" id="prevBtn">&larr; Back</button>
       <button class="btn" id="btnAlt">Try next pause</button>
       <button class="btn" id="noteToggle">+ Note</button>
+      <button class="btn" id="editToggle">Edit cut</button>
     </div>
     <textarea id="noteBox" placeholder="Optional note&hellip;" hidden></textarea>
+    <div id="editBox" class="editbox" hidden>
+      <div class="editRow">
+        <span id="editCutTxt"></span>
+        <button class="linkbtn" id="editReset" hidden>Reset to auto cut</button>
+      </div>
+      <div class="msRow" id="msMinusRow"></div>
+      <div class="msRow" id="msPlusRow"></div>
+    </div>
   </div>
 
   <div class="exportrow">
@@ -141,8 +158,19 @@ var posTxt = document.getElementById("posTxt");
 var markedTxt = document.getElementById("markedTxt");
 var barFill = document.getElementById("barFill");
 var listBox = document.getElementById("listBox");
+var editToggle = document.getElementById("editToggle");
+var editBox = document.getElementById("editBox");
+var editCutTxt = document.getElementById("editCutTxt");
+var editReset = document.getElementById("editReset");
+var msMinusRow = document.getElementById("msMinusRow");
+var msPlusRow = document.getElementById("msPlusRow");
+var MS_STEPS = [1, 5, 25, 100, 500, 1000];
+var editActive = false;
+var editStopAt = 0;
 
-function markFor(id){ return marks[id] || {status:null, note:""}; }
+function markFor(id){ return marks[id] || {status:null, note:"", adjustedCutAt:null}; }
+function baseCut(c){ return c.cut_at != null ? c.cut_at : (c.duration ? Math.min(5, c.duration/2) : 3); }
+function currentCut(c){ var m = markFor(c.id); return m.adjustedCutAt != null ? m.adjustedCutAt : baseCut(c); }
 
 function render(){
   var c = CLIPS[cur];
@@ -166,14 +194,16 @@ function render(){
     ? "Try next pause (" + c.alternatives.length + " found)" : "No alt pauses";
   btnAlt.disabled = !(c.alternatives && c.alternatives.length);
 
-  var cutInfo = c.cut_at != null ? ("cut at " + c.cut_at.toFixed(2) + "s") : "no cut (flagged)";
-  metaTxt.textContent = cutInfo + (c.threshold_used ? " · threshold " + c.threshold_used : "") +
-    (c.duration ? " · source " + c.duration.toFixed(1) + "s" : "");
-
   var m = markFor(c.id);
+  updateMetaTxt();
+
   noteBox.value = m.note || "";
   noteBox.hidden = !m.note;
   noteToggle.textContent = m.note ? "Edit note" : "+ Note";
+
+  editActive = false;
+  editBox.hidden = true;
+  renderEdit();
 
   posTxt.textContent = "Clip " + (cur+1) + " of " + CLIPS.length;
   var markedCount = Object.keys(marks).filter(function(k){return marks[k].status}).length;
@@ -230,12 +260,109 @@ btnCorrect.onclick = function(){ setMark("correct"); };
 btnWrong.onclick = function(){ setMark("wrong"); };
 
 replayBtn.onclick = function(){
+  if(editActive){ previewEditCut(); return; }
   var c = CLIPS[cur], ai = altIndex[c.id];
   if(ai != null && ai >= 0 && c.alternatives[ai]) player.currentTime = c.alternatives[ai].start;
   else player.currentTime = 0;
   player.playbackRate = rate;
   player.play();
   autoplayHint.hidden = true;
+};
+
+function updateMetaTxt(){
+  var c = CLIPS[cur];
+  var m = markFor(c.id);
+  var adjusted = m.adjustedCutAt != null;
+  var cutInfo = (c.cut_at != null || adjusted)
+    ? ("cut at " + currentCut(c).toFixed(2) + "s" + (adjusted ? " (edited)" : ""))
+    : "no cut (flagged)";
+  metaTxt.textContent = cutInfo + (c.threshold_used ? " · threshold " + c.threshold_used : "") +
+    (c.duration ? " · source " + c.duration.toFixed(1) + "s" : "");
+}
+
+function renderEdit(){
+  var c = CLIPS[cur];
+  var m = markFor(c.id);
+  var cutNow = currentCut(c);
+  var base = baseCut(c);
+  var adjusted = m.adjustedCutAt != null;
+  editCutTxt.innerHTML = "Cut at <span class='cutval'>" + cutNow.toFixed(3) + "s</span>" +
+    (adjusted ? " (auto was " + base.toFixed(2) + "s)" : "");
+  editReset.hidden = !adjusted;
+  updateMetaTxt();
+}
+
+function nudgeCut(deltaMs){
+  var c = CLIPS[cur];
+  var next = Math.max(0, currentCut(c) + deltaMs / 1000);
+  var m = markFor(c.id);
+  m.adjustedCutAt = Math.round(next * 1000) / 1000;
+  marks[c.id] = m;
+  saveMarks(marks);
+  renderEdit();
+  previewEditCut();
+}
+
+function buildMsRow(row, sign){
+  MS_STEPS.forEach(function(ms){
+    var b = document.createElement("button");
+    b.className = "msBtn";
+    b.textContent = (sign < 0 ? "−" : "+") + (ms >= 1000 ? (ms/1000) + "s" : ms + "ms");
+    b.onclick = function(){ nudgeCut(sign * ms); };
+    row.appendChild(b);
+  });
+}
+buildMsRow(msMinusRow, -1);
+buildMsRow(msPlusRow, 1);
+
+function previewEditCut(){
+  var c = CLIPS[cur];
+  var cutNow = currentCut(c);
+  var trKey = c.translation === "KJV" ? "kjv" : "rst";
+  var src = "raw/" + trKey + "/" + c.file + ".mp3";
+  if(player.getAttribute("src") !== src) player.src = src;
+  editStopAt = cutNow;
+  var start = Math.max(0, cutNow - 1.0);
+  var doPlay = function(){
+    player.currentTime = start;
+    player.playbackRate = rate;
+    var p = player.play();
+    if(p && p.catch) p.catch(function(){ autoplayHint.hidden = false; });
+  };
+  if(player.readyState >= 1) doPlay(); else player.addEventListener("loadedmetadata", doPlay, {once:true});
+}
+
+// a plain timeupdate listener only fires a few times a second, too coarse to stop
+// right at the cut when nudges are as fine as 1ms -- poll on a short interval instead
+// (requestAnimationFrame would be tighter, but it stalls if the tab isn't the foreground one)
+setInterval(function(){
+  if(editActive && !player.paused && player.currentTime >= editStopAt) player.pause();
+}, 30);
+
+editReset.onclick = function(){
+  var c = CLIPS[cur];
+  var m = markFor(c.id);
+  m.adjustedCutAt = null;
+  marks[c.id] = m;
+  saveMarks(marks);
+  renderEdit();
+  previewEditCut();
+};
+
+editToggle.onclick = function(){
+  editBox.hidden = !editBox.hidden;
+  var c = CLIPS[cur];
+  if(!editBox.hidden){
+    editActive = true;
+    renderEdit();
+    previewEditCut();
+  } else {
+    editActive = false;
+    player.pause();
+    player.src = c.clip ? c.clip : "";
+    player.currentTime = 0;
+    player.playbackRate = rate;
+  }
 };
 
 function setRate(r){
@@ -284,11 +411,11 @@ document.addEventListener("keydown", function(e){
 });
 
 function toCSV(){
-  var rows = [["id","translation","book_number","book","status","note","cut_at","threshold","flag","clip"]];
+  var rows = [["id","translation","book_number","book","status","note","cut_at","adjusted_cut_at","threshold","flag","clip"]];
   CLIPS.forEach(function(c){
     var m = markFor(c.id);
     rows.push([c.id,c.translation,c.b+1,c.book,m.status||"",(m.note||"").replace(/\\n/g," "),
-      c.cut_at==null?"":c.cut_at,c.threshold_used||"",c.flag||"",c.clip||""]);
+      c.cut_at==null?"":c.cut_at,m.adjustedCutAt==null?"":m.adjustedCutAt,c.threshold_used||"",c.flag||"",c.clip||""]);
   });
   return rows.map(function(r){
     return r.map(function(v){
@@ -312,7 +439,8 @@ document.getElementById("expJson").onclick = function(){
   var out = CLIPS.map(function(c){
     var m = markFor(c.id);
     return {id:c.id, translation:c.translation, book_number:c.b+1, book:c.book, status:m.status||null,
-      note:m.note||"", cut_at:c.cut_at, threshold_used:c.threshold_used, flag:c.flag, clip:c.clip};
+      note:m.note||"", cut_at:c.cut_at, adjusted_cut_at:m.adjustedCutAt==null?null:m.adjustedCutAt,
+      threshold_used:c.threshold_used, flag:c.flag, clip:c.clip};
   });
   download("booknames_marks.json", JSON.stringify(out, null, 2), "application/json");
 };
