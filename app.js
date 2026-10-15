@@ -750,10 +750,15 @@ function clkTick(){
 }
 /* the actual "is it time yet" check -- runs on its own watch timer (see armAlarmWatch below) whether or not
    the clock screen happens to be the thing on screen right now, so the alarm isn't tied to that one screen. */
+var SNOOZE_STALE_MS=20*60000;   // a snooze sitting unresolved this long (app closed, phone locked) isn't still "due" -- it's abandoned
 function checkAlarmDue(){
   if(!state.prefs.alarmOn)return;
   if(state.snoozeUntil){
-    if(Date.now()>=state.snoozeUntil){state.snoozeUntil=null;save();fireAlarmNow()}
+    var overdueMs=Date.now()-state.snoozeUntil;
+    if(overdueMs>=0){
+      state.snoozeUntil=null;save();
+      if(overdueMs<SNOOZE_STALE_MS)fireAlarmNow();   // otherwise just clear it quietly, no catch-up play hours later
+    }
     return;
   }
   var now=new Date(),hh=now.getHours(),mm=now.getMinutes();
