@@ -1027,10 +1027,16 @@
     if (!n) { updatePP(); setMsg(T().end); return; }
     var cur = view === "reader" ? detectViewing() : null;
     var following = !!cur && same(cur, ended);
-    var go = function () {
+    var startNext = function () {
       playChapter(n.b, n.c);
       if (following && view === "reader" && !followOn) scrollToChapter(n, true);   // with Auto on, the follow loop glides there
       if (view === "reader") onScroll();
+    };
+    var go = function () {
+      // crossing into a different book mid-day: announce it too, same as the day's very first chapter --
+      // audio-only, there'd otherwise be no cue you just left one book and landed in another
+      var clipUrl = (ended && n.b !== ended.b) ? bookNameClipUrl(tr, n.b, n.c) : "";
+      if (clipUrl) playPreClip(clipUrl, startNext); else startNext();
     };
     if (view === "reader" && !findRendered(n)) ensureRendered(n).then(go, go); else go();
   }

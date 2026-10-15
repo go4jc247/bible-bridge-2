@@ -491,13 +491,35 @@ function choosePlayMethod(b,c,u,back,onGo){
   if(alt&&part)sub+=(sub?" ":"")+"bible.com opens the whole chapter.";
   linkSheet(label,sub,L,R,back,onGo,unk,alt?yvEdit(alt,vName(v)):null);
 }
+/* where a partly-played day would pick back up: the first unit not yet marked played/confirmed.
+   -1 means every unit is done (or there's nothing to play); 0 means none of it has been touched yet --
+   in both of those cases there's no real choice to offer, so callers only prompt when this is > 0. */
+function dayResumeUnits(plan,idx){
+  var us=dayUnits(plan,idx),first=-1;
+  for(var i=0;i<us.length;i++){var m=chMark(plan,idx,us[i]);if(m!=="p"&&m!=="c"){first=i;break}}
+  return{us:us,firstIncomplete:first};
+}
+function offerDayResume(onContinue,onBeginning){
+  openSheet(function(box){
+    box.appendChild(sheetHead("Continue today’s reading?",null));
+    box.appendChild(h("p",{class:"note",text:"You already played part of this. Pick up where you left off, or start over from the beginning?"}));
+    box.appendChild(h("button",{class:"btn",type:"button",style:"margin-top:10px",onclick:function(){closeSheet();onContinue()}},["Continue where I left off"]));
+    box.appendChild(h("button",{class:"btn alt",type:"button",style:"margin-top:10px",onclick:function(){closeSheet();onBeginning()}},["Play from the beginning"]));
+  });
+}
 function choosePlayDay(plan,idx){
   var v=curVersion(),us=[];
   schedule(plan)[idx].forEach(function(g){g.forEach(function(u){us.push(u)})});
   var title=_f("Day {0} · all chapters",[idx+1]);
   if(!us.length){linkSheet(title,"Rest day.",null,null);return}
   var aOK=us.every(function(u){return availFor(v,u.b,false)}),rOK=us.every(function(u){return availFor(v,u.b,true)});
-  if(v.app){closeSheet();openApp(v,us[0].b,us[0].c,aOK,us.map(function(u){return{b:u.b,c:u.c}}),true);return}
+  if(v.app){
+    var startPlay=function(list){var ok=list.every(function(u){return availFor(v,u.b,false)});closeSheet();openApp(v,list[0].b,list[0].c,ok,list.map(function(u){return{b:u.b,c:u.c}}),true)};
+    var r=dayResumeUnits(plan,idx);
+    if(r.firstIncomplete>0)offerDayResume(function(){startPlay(r.us.slice(r.firstIncomplete))},function(){startPlay(us)});
+    else startPlay(us);
+    return;
+  }
   var alt=yvAlt(v),L=[],R=[],unk=false;
   if(!v.yvOnly){
     if(aOK)L.push({site:"BibleGateway",href:bgAudioUrl(plan,idx,v)});
@@ -541,8 +563,14 @@ function bestDailySource(forAlarm){
   return{ok:false,msg:"No reading available for today in this version."};
 }
 function runDailySource(d){
-  if(d.kind==="app")openApp(d.v,d.us[0].b,d.us[0].c,true,d.us.map(function(u){return{b:u.b,c:u.c}}),true);
-  else if(d.kind==="app-text")openApp(d.v,d.us[0].b,d.us[0].c,false,d.us.map(function(u){return{b:u.b,c:u.c}}));
+  if(d.kind==="app"){
+    var startPlay=function(list){var ok=list.every(function(u){return availFor(d.v,u.b,false)});openApp(d.v,list[0].b,list[0].c,ok,list.map(function(u){return{b:u.b,c:u.c}}),true);markOpenedDay(d.plan,d.idx)};
+    var r=dayResumeUnits(d.plan,d.idx);
+    if(r.firstIncomplete>0)offerDayResume(function(){startPlay(r.us.slice(r.firstIncomplete))},function(){startPlay(d.us)});
+    else startPlay(d.us);
+    return;
+  }
+  if(d.kind==="app-text")openApp(d.v,d.us[0].b,d.us[0].c,false,d.us.map(function(u){return{b:u.b,c:u.c}}));
   else if(d.kind==="bg-audio")window.open(bgAudioUrl(d.plan,d.idx,d.v),"_blank","noopener");
   else if(d.kind==="yv-audio")window.open(yvUrl(d.alt,d.us[0].b,d.us[0].c,true),"_blank","noopener");
   else if(d.kind==="bg-text")window.open("https://www.biblegateway.com/passage/?search="+encodeURIComponent(d.us.map(function(u){return BEN[u.b]+" "+u.c+(u.v1?":"+u.v1+"-"+u.v2:"")}).join("; "))+"&version="+encodeURIComponent(bgCode(d.v)),"_blank","noopener");
@@ -627,8 +655,14 @@ function almStart(d){
   ALM.pre=!!clipUrl;
   a.onended=function(){
     if(ALM.pre){ALM.pre=false;if(almLoadChapter())almTryPlay(null,clkNeedsTap);else almClear();return}
+    var prevB=ALM.us[ALM.i].b;
     ALM.i++;
-    if(ALM.i<ALM.us.length){if(almLoadChapter())almTryPlay(null,clkNeedsTap);return}
+    if(ALM.i<ALM.us.length){
+      var nextU=ALM.us[ALM.i],nextClip=nextU.b!==prevB?almBookClipUrl(ALM.v,nextU):"";   // crossing into a different book mid-day
+      if(nextClip){ALM.pre=true;a.src=nextClip;a.currentTime=0;almTryPlay(null,clkNeedsTap);return}
+      if(almLoadChapter())almTryPlay(null,clkNeedsTap);
+      return;
+    }
     almClear();
     if(CLK.face)clkRingingOff();   // today's reading finished playing on its own
   };
