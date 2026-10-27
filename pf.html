@@ -1,0 +1,558 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}
+.stage .overlayText{z-index:3;color:#fff;font-family:Arial,Helvetica,sans-serif;font-weight:600;text-shadow:0 1px 3px #000,1px 0 2px #000,-1px 0 2px #000;overflow:visible}
+.stage #qr{z-index:2}
+.adjustTabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;pointer-events:auto}
+.adjustTabs button{background:#fff;color:#111;border:2px solid #111;padding:9px 6px;font-size:14px}
+.adjustTabs button.active{background:#4b2a75;color:#fff;border-color:#fff}
+.adjustPanel[hidden]{display:none!important}
+
+</style></head><body>
+<title>Parrot QR Generator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+/* Layout: one column; the QR card sits on the same navy frame as the original, controls below */
+:root{
+  --bg:#eef0f6; --fg:#16182a; --muted:#5d6280; --panel:#ffffff; --line:#d6d9e6;
+  --frame:#1a1a2e; --accent:#3b4cca;
+  --num:#1f8a5b; --alnum:#3b4cca; --byte:#b5552b;
+  --sans:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1020; --fg:#e8e9f3; --muted:#9a9fbd; --panel:#1a1b30; --line:#2c2e4a;
+  --frame:#1a1a2e; --accent:#8c98ff; --num:#5fd39c; --alnum:#8c98ff; --byte:#f0946a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1020; --fg:#e8e9f3; --muted:#9a9fbd; --panel:#1a1b30; --line:#2c2e4a;
+  --frame:#1a1a2e; --accent:#8c98ff; --num:#5fd39c; --alnum:#8c98ff; --byte:#f0946a; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5}
+.wrap{position:fixed;inset:0;max-width:none;margin:0;padding:0;display:block;overflow:hidden;touch-action:pan-x pan-y; background:#111225}
+.stage{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:auto;background:#111225;overflow:hidden}
+.stage #background{position:absolute;inset:0;width:100%;height:100%;object-fit:fill}
+.stage #qr{position:absolute;left:24.4%;top:30.25%;width:51.2%;height:auto;max-width:none;border-radius:12%;image-rendering:pixelated}
+#optionsMenu{position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:18px;box-sizing:border-box}
+#optionsMenu[hidden]{display:none!important}
+.menuCard{width:min(100%,520px);max-height:90dvh;overflow:auto;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:16px;padding:18px;box-sizing:border-box;display:grid;gap:12px}
+.menuCard h2{margin:0;font-size:20px}
+.menuCard input[type=text],.menuCard textarea{width:100%;box-sizing:border-box}
+.menuCard .menuRow{display:grid;gap:6px}
+.menuCard .row button{flex:1}
+.stage,body,html{overscroll-behavior:none;touch-action:manipulation}
+body{overflow:hidden;user-select:none;-webkit-user-select:none}
+#content{user-select:text;-webkit-user-select:text}
+.stage{position:relative;width:100%;aspect-ratio:832/1801;background:#111225;overflow:hidden}
+.stage #background{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.stage #qr{position:absolute;left:24.4%;top:30.25%;width:51.2%;height:auto;max-width:none;border-radius:12%;image-rendering:pixelated}
+input[type=file]{font:inherit;max-width:100%}
+h1{font-size:20px;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 0;font-size:13px}
+.frame{background:var(--frame);border-radius:16px;padding:18px;display:flex;justify-content:center}
+.frame img{width:100%;max-width:420px;border-radius:14px;display:block;image-rendering:pixelated}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:10px;min-width:0}
+label{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+textarea{font-family:var(--mono);font-size:14px;width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--bg);color:var(--fg);resize:vertical;min-height:64px}
+textarea:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+button{font-family:var(--sans);font-size:14px;font-weight:600;border-radius:8px;padding:9px 14px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--panel)}
+.specs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.spec{border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.spec b{display:block;font-family:var(--mono);font-size:18px;font-variant-numeric:tabular-nums}
+.spec span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.segs{display:flex;flex-wrap:wrap;gap:6px;font-family:var(--mono);font-size:13px}
+.seg{border-radius:6px;padding:3px 8px;border:1.5px solid currentColor;word-break:break-all}
+.seg small{font-family:var(--sans);font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-right:6px;opacity:.85}
+.seg.num{color:var(--num)} .seg.alnum{color:var(--alnum)} .seg.byte{color:var(--byte)}
+.note{font-size:12px;color:var(--muted);margin:0}
+.warn{color:var(--byte);font-size:13px;margin:0}
+.err{color:var(--byte);font-weight:600}
+/* Date and username overlays: positioned independently around the QR card */
+.stage .overlayText{position:absolute;left:50%;top:25%;transform:translate(-50%,-50%);white-space:nowrap;color:#fff;font-family:Arial,Helvetica,sans-serif;font-weight:600;text-align:center;pointer-events:none;max-width:95%;overflow:hidden}
+.stage #dateText{font-size:4.2vw}
+.stage #usernameText{top:58%;font-size:4.2vw}
+.stage #nameText{top:19%;font-size:6.2vw;font-weight:800;letter-spacing:-.035em;font-family:Arial,Helvetica,sans-serif}
+.stage .overlayText{z-index:2}
+.stage #centerLogo{position:absolute;left:50%;top:42.08%;transform:translate(-50%,-50%);width:12%;height:12%;object-fit:contain;z-index:3;pointer-events:none}
+.menuToggle{display:flex;align-items:center;gap:8px;font-size:14px;text-transform:none;letter-spacing:0;color:var(--fg)}
+.menuToggle input{width:18px;height:18px}
+.settingsActions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+/* QR position/size: centre-anchored so resizing grows evenly in all directions */
+.stage #qr{left:50%;top:42.08%;transform:translate(-50%,-50%)}
+/* Adjust mode: floating controls, no panel background, white with black outline */
+#adjustBar{position:fixed;left:0;right:0;bottom:0;z-index:20;padding:12px 18px calc(14px + env(safe-area-inset-bottom,0px));display:grid;gap:10px;box-sizing:border-box;pointer-events:none}
+#adjustBar[hidden]{display:none!important}
+#adjustBar > *{pointer-events:auto}
+.adj{display:grid;grid-template-columns:96px 1fr 44px;align-items:center;gap:10px}
+.adj span,.adj output,.adjHint{color:#fff;font-weight:600;font-size:14px;letter-spacing:0;text-transform:none;
+  text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000,0 0 3px #000}
+.adj output{text-align:right;font-family:var(--mono);font-size:13px}
+.adjHint{text-align:center;font-size:13px;margin:0}
+.adj input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:28px;background:transparent;margin:0}
+.adj input[type=range]::-webkit-slider-runnable-track{height:8px;background:#fff;border:2px solid #000;border-radius:6px}
+.adj input[type=range]::-moz-range-track{height:8px;background:#fff;border:2px solid #000;border-radius:6px}
+.adj input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;margin-top:-11px;border-radius:50%;background:#fff;border:3px solid #000;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+.adj input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:#fff;border:3px solid #000}
+.adjBtns{display:flex;gap:10px}
+.adjBtns button{flex:1;background:#fff;color:#000;border:2px solid #000;border-radius:10px;padding:10px;font-size:15px;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+body.adjusting #qr{touch-action:none;cursor:grab;outline:2px dashed #fff;outline-offset:3px;box-shadow:0 0 0 5px rgba(0,0,0,.6)}
+/* Temporary clean preview: leave the selected slider rows visible, hide other controls. */
+#adjustBar.sliderOnly .adjustTabs,#adjustBar.sliderOnly .adjHint,#adjustBar.sliderOnly .adjBtns{display:none!important}
+#adjustBar.sliderOnly{padding:12px 18px calc(14px + env(safe-area-inset-bottom,0px));background:transparent}
+#adjustBar.sliderOnly .adj{grid-template-columns:1fr;gap:0}
+#adjustBar.sliderOnly .adj span,#adjustBar.sliderOnly .adj output{display:none}
+#adjustBar.sliderOnly .adj input[type=range]{height:34px}
+
+</style>
+<div class="wrap">
+  <div class="stage" id="stage" aria-label="Long press to open options">
+    <img id="background" alt="Choose a background image to preview" hidden>
+    <img id="qr" alt="Generated QR code overlay">
+    <div id="nameText" class="overlayText"></div>
+    <div id="dateText" class="overlayText"></div>
+    <div id="usernameText" class="overlayText"></div>
+    <img id="centerLogo" alt="QR center image" hidden>
+  </div>
+</div>
+<div id="optionsMenu" hidden role="dialog" aria-modal="true" aria-labelledby="menuTitle">
+  <div class="menuCard">
+    <h2 id="menuTitle">QR Options</h2>
+    <div class="menuRow"><label for="backgroundFile">Background image</label><input id="backgroundFile" type="file" accept="image/*"></div>
+    <div class="menuRow"><label for="usernameCode">Username / code</label><input id="usernameCode" type="text" value="USERNAME1234" autocapitalize="off" autocomplete="off"></div>
+    <div class="menuRow"><label for="displayName">First and last name</label><input id="displayName" type="text" value="" autocomplete="off"></div>
+    <div class="menuRow"><label>Show on screen</label><label class="menuToggle"><input id="showName" type="checkbox" checked> Name</label><label class="menuToggle"><input id="showDate" type="checkbox" checked> Date</label><label class="menuToggle"><input id="showUsername" type="checkbox" checked> Username</label></div>
+    <div class="menuRow"><label for="centerImageFile">Image in the middle of QR code</label><input id="centerImageFile" type="file" accept="image/*"><label class="menuToggle"><input id="showCenterImage" type="checkbox" checked> Show center image</label><p class="note">Choose a small logo or image to overlay in the QR center.</p></div>
+    <div class="settingsActions"><button id="exportSettings" type="button">Export settings</button><button id="importSettingsBtn" type="button">Import settings</button><input id="importSettingsFile" type="file" accept="application/json,.json" hidden></div>
+    <button id="saveDefaults" type="button">Save current settings as defaults</button>
+    <div class="menuRow"><label for="content">QR content</label><textarea id="content" spellcheck="false" autocapitalize="off" autocomplete="off" rows="3"></textarea></div>
+    <div class="specs"><div class="spec"><b id="ver">4</b><span>Version</span></div><div class="spec"><b>H</b><span>Error corr.</span></div><div class="spec"><b id="mask">0</b><span>Mask</span></div></div>
+    <p id="warn" class="warn" hidden></p><label>Encoding segments</label><div id="segs" class="segs"></div>
+    <div class="row"><button id="now" class="primary" type="button">Update time now</button><button id="copy" type="button">Copy content</button></div>
+    <button id="adjustBtn" type="button">Move / resize QR</button>
+    <p class="note">Long-press the background to reopen this menu. The QR timestamp updates automatically in UTC.</p>
+    <button id="closeMenu" class="primary" type="button">Close menu</button>
+  </div>
+</div>
+<div id="adjustBar" hidden>
+  <div class="adjustTabs" role="tablist" aria-label="Choose what to adjust">
+    <button type="button" class="adjustTab active" data-tab="qr">QR card</button>
+    <button type="button" class="adjustTab" data-tab="name">Name</button>
+    <button type="button" class="adjustTab" data-tab="date">Date</button>
+    <button type="button" class="adjustTab" data-tab="user">Username</button>
+  </div>
+  <p class="adjHint" id="adjustHint">Drag the QR card to move it, or use the sliders</p>
+  <div class="adjustPanel" data-panel="qr">
+    <label class="adj"><span>QR size</span><input id="adjSize" type="range" min="15" max="95" step="0.5"><output id="outSize"></output></label>
+    <label class="adj"><span>White border</span><input id="adjPad" type="range" min="0" max="12" step="0.5"><output id="outPad"></output></label>
+    <label class="adj"><span>Left / right</span><input id="adjX" type="range" min="0" max="100" step="0.25"><output id="outX"></output></label>
+    <label class="adj"><span>Up / down</span><input id="adjY" type="range" min="0" max="100" step="0.25"><output id="outY"></output></label>
+  </div>
+  <div class="adjustPanel" data-panel="name" hidden>
+    <label class="adj"><span>Text size</span><input id="nameSize" type="range" min="1" max="16" step="0.1"><output id="nameSizeOut"></output></label>
+    <label class="adj"><span>Left / right</span><input id="nameX" type="range" min="0" max="100" step="0.25"><output id="nameXOut"></output></label>
+    <label class="adj"><span>Up / down</span><input id="nameY" type="range" min="0" max="100" step="0.25"><output id="nameYOut"></output></label>
+  </div>
+  <div class="adjustPanel" data-panel="date" hidden>
+    <label class="adj"><span>Text size</span><input id="dateSize" type="range" min="1" max="12" step="0.1"><output id="dateSizeOut"></output></label>
+    <label class="adj"><span>Left / right</span><input id="dateX" type="range" min="0" max="100" step="0.25"><output id="dateXOut"></output></label>
+    <label class="adj"><span>Up / down</span><input id="dateY" type="range" min="0" max="100" step="0.25"><output id="dateYOut"></output></label>
+  </div>
+  <div class="adjustPanel" data-panel="user" hidden>
+    <label class="adj"><span>Text size</span><input id="userSize" type="range" min="1" max="12" step="0.1"><output id="userSizeOut"></output></label>
+    <label class="adj"><span>Left / right</span><input id="userX" type="range" min="0" max="100" step="0.25"><output id="userXOut"></output></label>
+    <label class="adj"><span>Up / down</span><input id="userY" type="range" min="0" max="100" step="0.25"><output id="userYOut"></output></label>
+  </div>
+  <div class="adjBtns"><button id="sliderOnly" type="button">Slider-only view (20 sec)</button><button id="adjReset" type="button">Reset this item</button><button id="adjDone" type="button">Done</button></div>
+</div>
+<script>
+// Minimal QR encoder: EC level H, selectable mask, optimal mixed-mode segmentation.
+const QR = (() => {
+  const ALNUM = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:';
+  // EC level H: [ecPerBlock, [[count, dataCodewords], ...]]
+  const H = {
+    1:[17,[[1,9]]], 2:[28,[[1,16]]], 3:[22,[[2,13]]], 4:[16,[[4,9]]],
+    5:[22,[[2,11],[2,12]]], 6:[28,[[4,15]]], 7:[26,[[4,13],[1,14]]],
+    8:[26,[[4,14],[2,15]]], 9:[24,[[4,12],[4,13]]], 10:[28,[[6,15],[2,16]]]
+  };
+  const ALIGN = {1:[],2:[6,18],3:[6,22],4:[6,26],5:[6,30],6:[6,34],7:[6,22,38],8:[6,24,42],9:[6,26,46],10:[6,28,50]};
+  const MAXV = 10;
+  const ccBits = (mode, v) => v < 10 ? {num:10, alnum:9, byte:8}[mode] : {num:12, alnum:11, byte:16}[mode];
+  const modeInd = {num:1, alnum:2, byte:4};
+  const utf8 = s => Array.from(new TextEncoder().encode(s));
+
+  function classOf(ch) {
+    if (/[0-9]/.test(ch)) return 'num';
+    if (ALNUM.includes(ch)) return 'alnum';
+    return 'byte';
+  }
+
+  // Optimal segmentation via DP (costs in 1/6 bit units)
+  function segment(text, v) {
+    const chars = Array.from(text);
+    const modes = ['byte','alnum','num'];
+    const n = chars.length;
+    if (!n) return [];
+    const head = m => (4 + ccBits(m, v)) * 6;
+    const charCost = (m, ch) => m === 'num' ? 20 : m === 'alnum' ? 33 : utf8(ch).length * 48;
+    const ok = (m, ch) => m === 'byte' || (m === 'alnum' ? ALNUM.includes(ch) : /[0-9]/.test(ch));
+    let prev = {byte:0, alnum:0, num:0};
+    const back = [];
+    for (let i = 0; i < n; i++) {
+      const cur = {}, from = {};
+      for (const m of modes) {
+        if (!ok(m, chars[i])) { cur[m] = Infinity; continue; }
+        let best = Infinity, bm = null;
+        for (const p of modes) {
+          let c;
+          if (i === 0) c = head(m);
+          else c = prev[p] === Infinity ? Infinity : (p === m ? prev[p] : Math.ceil(prev[p] / 6) * 6 + head(m));
+          if (c < best) { best = c; bm = p; }
+        }
+        cur[m] = best + charCost(m, chars[i]); from[m] = bm;
+      }
+      back.push(from); prev = cur;
+    }
+    let m = modes.reduce((a, b) => prev[a] <= prev[b] ? a : b);
+    const seq = new Array(n);
+    for (let i = n - 1; i >= 0; i--) { seq[i] = m; m = back[i][m]; }
+    const segs = [];
+    for (let i = 0; i < n; i++) {
+      if (segs.length && segs[segs.length-1].mode === seq[i]) segs[segs.length-1].text += chars[i];
+      else segs.push({mode: seq[i], text: chars[i]});
+    }
+    return segs;
+  }
+
+  function segBits(seg, v) {
+    const bits = [];
+    const put = (val, len) => { for (let i = len - 1; i >= 0; i--) bits.push((val >>> i) & 1); };
+    put(modeInd[seg.mode], 4);
+    if (seg.mode === 'num') {
+      put(seg.text.length, ccBits('num', v));
+      for (let i = 0; i < seg.text.length; i += 3) {
+        const g = seg.text.substr(i, 3); put(parseInt(g, 10), g.length * 3 + 1);
+      }
+    } else if (seg.mode === 'alnum') {
+      put(seg.text.length, ccBits('alnum', v));
+      for (let i = 0; i < seg.text.length; i += 2) {
+        if (i + 1 < seg.text.length) put(ALNUM.indexOf(seg.text[i]) * 45 + ALNUM.indexOf(seg.text[i+1]), 11);
+        else put(ALNUM.indexOf(seg.text[i]), 6);
+      }
+    } else {
+      const b = utf8(seg.text); put(b.length, ccBits('byte', v)); b.forEach(x => put(x, 8));
+    }
+    return bits;
+  }
+
+  const capacity = v => H[v][1].reduce((s, [c, d]) => s + c * d, 0);
+
+  // GF(256) Reed-Solomon
+  const EXP = new Array(512), LOG = new Array(256);
+  (() => { let x = 1; for (let i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 256) x ^= 0x11d; } for (let i = 255; i < 512; i++) EXP[i] = EXP[i-255]; })();
+  const mul = (a, b) => (a && b) ? EXP[LOG[a] + LOG[b]] : 0;
+  function rsEC(data, n) {
+    let gen = [1];
+    for (let i = 0; i < n; i++) {
+      const g = new Array(gen.length + 1).fill(0);
+      gen.forEach((c, j) => { g[j] ^= c; g[j+1] ^= mul(c, EXP[i]); });
+      gen = g;
+    }
+    const r = data.concat(new Array(n).fill(0));
+    for (let i = 0; i < data.length; i++) {
+      const f = r[i]; if (f) gen.forEach((c, j) => { r[i+j] ^= mul(c, f); });
+    }
+    return r.slice(data.length);
+  }
+
+  function encode(text, opts = {}) {
+    const minV = opts.minVersion || 4, mask = opts.mask ?? 0;
+    for (let v = minV; v <= MAXV; v++) {
+      const segs = segment(text, v);
+      let bits = [];
+      segs.forEach(s => { bits = bits.concat(segBits(s, v)); });
+      const cap = capacity(v) * 8;
+      if (bits.length > cap) continue;
+      for (let i = 0; i < 4 && bits.length < cap; i++) bits.push(0);
+      while (bits.length % 8) bits.push(0);
+      const data = [];
+      for (let i = 0; i < bits.length; i += 8) data.push(parseInt(bits.slice(i, i+8).join(''), 2));
+      for (let p = 0; data.length < capacity(v); p++) data.push(p % 2 ? 0x11 : 0xEC);
+      return {version: v, segments: segs, matrix: build(v, data, mask)};
+    }
+    throw new Error('Content too long');
+  }
+
+  function build(v, data, mask) {
+    const [ecn, groups] = H[v];
+    const blocks = []; let k = 0;
+    groups.forEach(([c, d]) => { for (let i = 0; i < c; i++) { blocks.push(data.slice(k, k + d)); k += d; } });
+    const ecs = blocks.map(b => rsEC(b, ecn));
+    const out = [];
+    const maxD = Math.max(...blocks.map(b => b.length));
+    for (let i = 0; i < maxD; i++) blocks.forEach(b => { if (i < b.length) out.push(b[i]); });
+    for (let i = 0; i < ecn; i++) ecs.forEach(e => out.push(e[i]));
+
+    const N = 17 + 4 * v;
+    const M = Array.from({length: N}, () => new Array(N).fill(0));
+    const F = Array.from({length: N}, () => new Array(N).fill(false));
+    const set = (r, c, val) => { M[r][c] = val ? 1 : 0; F[r][c] = true; };
+    const finder = (r0, c0) => {
+      for (let dr = -1; dr <= 7; dr++) for (let dc = -1; dc <= 7; dc++) {
+        const r = r0 + dr, c = c0 + dc; if (r < 0 || c < 0 || r >= N || c >= N) continue;
+        const d = Math.max(Math.abs(dr - 3), Math.abs(dc - 3));
+        set(r, c, d !== 2 && d !== 4);
+      }
+    };
+    finder(0, 0); finder(0, N - 7); finder(N - 7, 0);
+    for (let i = 0; i < N; i++) { if (!F[6][i]) set(6, i, i % 2 === 0); if (!F[i][6]) set(i, 6, i % 2 === 0); }
+    const al = ALIGN[v];
+    al.forEach(r => al.forEach(c => {
+      if ((r === 6 && c === 6) || (r === 6 && c === N - 7) || (r === N - 7 && c === 6)) return;
+      for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) set(r + dr, c + dc, Math.max(Math.abs(dr), Math.abs(dc)) !== 1);
+    }));
+    // reserve format + dark module
+    for (let i = 0; i < 9; i++) { if (!F[8][i]) set(8, i, 0); if (!F[i][8]) set(i, 8, 0); }
+    for (let i = 0; i < 8; i++) { set(8, N - 1 - i, 0); set(N - 1 - i, 8, 0); }
+    set(N - 8, 8, 1);
+    // version info
+    if (v >= 7) {
+      let r = v; for (let i = 0; i < 12; i++) r = (r << 1) ^ ((r >>> 11) * 0x1F25);
+      const bits = (v << 12) | r;
+      for (let i = 0; i < 18; i++) {
+        const b = (bits >>> i) & 1, a = N - 11 + (i % 3), c = Math.floor(i / 3);
+        set(a, c, b); set(c, a, b);
+      }
+    }
+    // data
+    const maskFn = [
+      (r,c)=>(r+c)%2===0,(r,c)=>r%2===0,(r,c)=>c%3===0,(r,c)=>(r+c)%3===0,
+      (r,c)=>(Math.floor(r/2)+Math.floor(c/3))%2===0,(r,c)=>r*c%2+r*c%3===0,
+      (r,c)=>(r*c%2+r*c%3)%2===0,(r,c)=>((r+c)%2+r*c%3)%2===0][mask];
+    let bi = 0; const total = out.length * 8;
+    for (let c = N - 1, up = true; c > 0; c -= 2, up = !up) {
+      if (c === 6) c--;
+      for (let j = 0; j < N; j++) {
+        const r = up ? N - 1 - j : j;
+        for (const cc of [c, c - 1]) {
+          if (F[r][cc]) continue;
+          let b = bi < total ? (out[bi >> 3] >>> (7 - (bi & 7))) & 1 : 0; bi++;
+          if (maskFn(r, cc)) b ^= 1;
+          M[r][cc] = b;
+        }
+      }
+    }
+    // format info (H = 0b10)
+    let d = (2 << 3) | mask, rem = d;
+    for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+    const fmt = ((d << 10) | rem) ^ 0x5412;
+    const fb = i => (fmt >>> i) & 1;
+    for (let i = 0; i <= 5; i++) M[i][8] = fb(i);
+    M[7][8] = fb(6); M[8][8] = fb(7); M[8][7] = fb(8);
+    for (let i = 9; i < 15; i++) M[8][14 - i] = fb(i);
+    for (let i = 0; i < 8; i++) M[8][N - 1 - i] = fb(i);
+    for (let i = 8; i < 15; i++) M[N - 15 + i][8] = fb(i);
+    M[N - 8][8] = 1;
+    return M;
+  }
+
+  return {encode, segment};
+})();
+
+
+const $=id=>document.getElementById(id);
+// ===== EDIT THESE VALUES YOURSELF =====
+const USERNAME_CODE = 'NA'; // Default username/code. You can also change it in the options menu.
+const QR_SUFFIX = '/mobile/';
+// ====================================
+let activeUsername = USERNAME_CODE;
+const ORIG = USERNAME_CODE + QR_SUFFIX;
+const names={num:'numeric',alnum:'alnum',byte:'byte'};
+let lastMask=-1;
+// ===== QR layout (size = width of the black code area, % of screen width; x/y = centre, %) =====
+const DEFAULT_LAYOUT={size:36,pad:2,x:50,y:42};
+let layout={...DEFAULT_LAYOUT},lastN=33;
+function applyLayout(){
+  const qr=$('qr');
+  qr.style.width=(layout.size*(lastN+2*layout.pad)/lastN)+'%';
+  $('centerLogo').style.width=(layout.size*0.36)+'%';$('centerLogo').style.height=(layout.size*0.36)+'%';
+  qr.style.left=layout.x+'%';qr.style.top=layout.y+'%';
+  qr.style.borderRadius=layout.pad>0?'12%':'0';
+  $('centerLogo').style.left=layout.x+'%';$('centerLogo').style.top=layout.y+'%';
+  $('adjSize').value=layout.size;$('adjPad').value=layout.pad;$('adjX').value=layout.x;$('adjY').value=layout.y;
+  $('outSize').textContent=Math.round(layout.size)+'%';$('outPad').textContent=layout.pad;
+  $('outX').textContent=Math.round(layout.x);$('outY').textContent=Math.round(layout.y);
+  try{localStorage.setItem('qrLayout',JSON.stringify(layout))}catch(e){}
+}
+function randomMask(){
+  // Choose uniformly from the seven masks other than the previous one.
+  const choices=Array.from({length:8},(_,i)=>i).filter(i=>i!==lastMask);
+  lastMask=choices[Math.floor(Math.random()*choices.length)];
+  return lastMask;
+}
+// Text overlay layout; values are percentages of stage dimensions.
+const DEFAULT_TEXT_LAYOUT={name:{size:7.3,x:50,y:19},date:{size:3.2,x:50,y:24.5},user:{size:3.1,x:50,y:58}};
+let textLayout={name:{...DEFAULT_TEXT_LAYOUT.name},date:{...DEFAULT_TEXT_LAYOUT.date},user:{...DEFAULT_TEXT_LAYOUT.user}};
+let overlaySettings={name:'',showName:false,showDate:true,showUsername:true,showCenterImage:true};
+let centerImageData='';
+function updateOverlayText(){
+  const name=$('nameText'),date=$('dateText'),user=$('usernameText');
+  const d=new Date();
+  name.textContent=overlaySettings.name||'';
+  date.textContent=d.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+  user.textContent=activeUsername;
+  name.hidden=!overlaySettings.showName;date.hidden=!overlaySettings.showDate;user.hidden=!overlaySettings.showUsername;
+  $('showName').checked=overlaySettings.showName;$('showDate').checked=overlaySettings.showDate;$('showUsername').checked=overlaySettings.showUsername;
+  $('displayName').value=overlaySettings.name;
+  for(const [key,el] of [['name',name],['date',date],['user',user]]){
+    const v=textLayout[key];el.style.left=v.x+'%';el.style.top=v.y+'%';el.style.fontSize=v.size+'vw';
+  }
+  const ids={nameSize:'name.size',nameX:'name.x',nameY:'name.y',dateSize:'date.size',dateX:'date.x',dateY:'date.y',userSize:'user.size',userX:'user.x',userY:'user.y'};
+  for(const [id,path] of Object.entries(ids)){
+    const [k,p]=path.split('.');$(id).value=textLayout[k][p];$(id+'Out').textContent=Number(textLayout[k][p]).toFixed(1);
+  }
+  $('centerLogo').hidden=!(overlaySettings.showCenterImage&&centerImageData);
+  $('showCenterImage').checked=overlaySettings.showCenterImage;
+  if(centerImageData)$('centerLogo').src=centerImageData;
+  try{localStorage.setItem('qrTextLayout',JSON.stringify(textLayout));localStorage.setItem('qrOverlaySettings',JSON.stringify(overlaySettings));}catch(e){}
+}
+function wireTextSlider(id,key,prop){$(id).addEventListener('input',e=>{textLayout[key][prop]=+e.target.value;updateOverlayText();});}
+wireTextSlider('nameSize','name','size');wireTextSlider('nameX','name','x');wireTextSlider('nameY','name','y');
+wireTextSlider('dateSize','date','size');wireTextSlider('dateX','date','x');wireTextSlider('dateY','date','y');
+wireTextSlider('userSize','user','size');wireTextSlider('userX','user','x');wireTextSlider('userY','user','y');
+function exportSettings(){
+  const settings={version:2,usernameCode:activeUsername,displayName:overlaySettings.name,overlaySettings:{...overlaySettings},qrLayout:{...layout},textLayout:JSON.parse(JSON.stringify(textLayout)),centerImageData:centerImageData||null};
+  const blob=new Blob([JSON.stringify(settings,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='parrot-qr-settings.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function applySettings(settings){
+  if(settings.usernameCode!=null){activeUsername=String(settings.usernameCode);$('usernameCode').value=activeUsername;}
+  if(settings.overlaySettings)overlaySettings={...overlaySettings,...settings.overlaySettings};
+  else if(settings.displayName!=null)overlaySettings.name=String(settings.displayName);
+  if(settings.qrLayout)layout={...layout,...settings.qrLayout};
+  if(settings.textLayout)textLayout={name:{...textLayout.name,...settings.textLayout.name},date:{...textLayout.date,...settings.textLayout.date},user:{...textLayout.user,...settings.textLayout.user}};
+  if(settings.centerImageData){centerImageData=settings.centerImageData;$('centerLogo').src=centerImageData;}
+  updateTimestamp();updateOverlayText();applyLayout();
+}
+updateOverlayText();
+$('displayName').addEventListener('input',()=>{overlaySettings.name=$('displayName').value;updateOverlayText();});
+[['showName','showName'],['showDate','showDate'],['showUsername','showUsername'],['showCenterImage','showCenterImage']].forEach(([id,key])=>$(id).addEventListener('change',()=>{overlaySettings[key]=$ (id).checked;updateOverlayText();}));
+$('centerImageFile').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{centerImageData=String(r.result);$('centerLogo').src=centerImageData;updateOverlayText();};r.readAsDataURL(f);});
+$('exportSettings').addEventListener('click',exportSettings);
+$('importSettingsBtn').addEventListener('click',()=>$('importSettingsFile').click());
+$('importSettingsFile').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{applySettings(JSON.parse(String(r.result)));}catch(err){alert('Could not read settings JSON.');}};r.readAsText(f);});
+$('saveDefaults').addEventListener('click',()=>{try{localStorage.setItem('qrDefaults',JSON.stringify({version:2,usernameCode:activeUsername,overlaySettings,textLayout,qrLayout:layout,centerImageData:centerImageData||null}));localStorage.setItem('qrTextLayout',JSON.stringify(textLayout));localStorage.setItem('qrOverlaySettings',JSON.stringify(overlaySettings));localStorage.setItem('qrLayout',JSON.stringify(layout));$('saveDefaults').textContent='Defaults saved';setTimeout(()=>$('saveDefaults').textContent='Save current settings as defaults',1600);}catch(e){alert('Could not save defaults in this browser.');}});
+try{const d=JSON.parse(localStorage.getItem('qrDefaults'));if(d&&d.version===2)applySettings(d);else{const fresh={version:2,usernameCode:USERNAME_CODE,overlaySettings:{...overlaySettings},textLayout:JSON.parse(JSON.stringify(DEFAULT_TEXT_LAYOUT)),qrLayout:{...DEFAULT_LAYOUT},centerImageData:null};localStorage.setItem('qrDefaults',JSON.stringify(fresh));}}catch(e){}
+
+function render(){
+  const text=$('content').value.replace(/\n+$/,'');
+  try{
+    const mask=randomMask();
+    const r=QR.encode(text,{minVersion:4,mask});
+    const M=r.matrix,N=M.length,q=layout.pad,s=12,W=Math.round((N+2*q)*s);lastN=N;
+    const c=document.createElement('canvas');c.width=c.height=W;
+    const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,W,W);g.fillStyle='#000';
+    for(let y=0;y<N;y++)for(let x=0;x<N;x++)if(M[y][x])g.fillRect((x+q)*s,(y+q)*s,s,s);
+    $('qr').src=c.toDataURL('image/png');applyLayout();
+    $('ver').textContent=r.version;
+    $('mask').textContent=mask;
+    const w=$('warn');
+    if(r.version>4){w.hidden=false;w.textContent='Too long for Version 4, so the code grew to Version '+r.version+'. Error correction H and mask '+mask+' are used.';}else w.hidden=true;
+    const box=$('segs');box.textContent='';
+    r.segments.forEach(sg=>{const e=document.createElement('span');e.className='seg '+sg.mode;
+      const l=document.createElement('small');l.textContent=names[sg.mode];e.append(l,document.createTextNode(sg.text));box.append(e);});
+    if(!r.segments.length){box.innerHTML='<span class="note">Type some content above.</span>';}
+  }catch(e){$('segs').innerHTML='<span class="err">Too long. This generator supports up to Version 10 (about 119 characters).</span>';}
+  try{localStorage.setItem('qrContent',$('content').value)}catch(e){}
+}
+function pad(n){return String(n).padStart(2,'0')}
+function currentTimestamp(){
+  const d=new Date();
+  return pad(d.getUTCMonth()+1)+pad(d.getUTCDate())+d.getUTCFullYear()+'-'+pad(d.getUTCHours())+pad(d.getUTCMinutes())+pad(d.getUTCSeconds());
+}
+function updateTimestamp(){
+  const ts=currentTimestamp();
+  $('content').value=activeUsername+QR_SUFFIX+ts;
+  render();
+}
+$('now').onclick=updateTimestamp;
+$('backgroundFile').addEventListener('change',e=>{
+  const file=e.target.files && e.target.files[0]; if(!file) return;
+  const url=URL.createObjectURL(file); $('background').src=url; $('background').hidden=false;
+});
+$('usernameCode').value=activeUsername;
+$('usernameCode').addEventListener('input',()=>{activeUsername=$('usernameCode').value.trim()||'USERNAME';updateTimestamp();updateOverlayText();});
+$('copy').onclick=async()=>{
+  const b=$('copy');
+  try{await navigator.clipboard.writeText($('content').value);b.textContent='Copied';}
+  catch(e){$('content').select();b.textContent='Selected, press copy';}
+  setTimeout(()=>b.textContent='Copy content',1500);
+};
+$('content').addEventListener('input',render);
+$('content').value = ORIG + currentTimestamp();
+updateTimestamp();
+updateOverlayText();
+setInterval(updateTimestamp,1000);
+setInterval(updateOverlayText,1000);
+// Long-press to open options; context menu also works on desktop.
+const menu=$('optionsMenu');
+let holdTimer=null;
+function openMenu(){menu.hidden=false;}
+function closeMenu(){menu.hidden=true;}
+$('closeMenu').addEventListener('click',closeMenu);
+$('stage').addEventListener('contextmenu',e=>{e.preventDefault();openMenu();});
+$('stage').addEventListener('pointerdown',e=>{if(e.pointerType==='mouse'||adjusting)return;holdTimer=setTimeout(openMenu,600);});
+// ===== Adjust mode =====
+let adjusting=false;
+function startAdjust(){adjusting=true;closeMenu();document.body.classList.add('adjusting');$('adjustBar').hidden=false;}
+function endAdjust(){adjusting=false;document.body.classList.remove('adjusting');$('adjustBar').hidden=true;}
+$('adjustBtn').addEventListener('click',startAdjust);
+let activeAdjustTab='qr';
+function selectAdjustTab(tab){
+  activeAdjustTab=tab;
+  document.querySelectorAll('.adjustTab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+  document.querySelectorAll('.adjustPanel').forEach(p=>p.hidden=p.dataset.panel!==tab);
+  $('adjustHint').textContent=tab==='qr'?'Drag the QR card to move it, or use the sliders':tab==='name'?'Adjust the name text above the date':tab==='date'?'Adjust the date text above the QR card':'Adjust the username text below the QR card';
+}
+document.querySelectorAll('.adjustTab').forEach(b=>b.addEventListener('click',()=>selectAdjustTab(b.dataset.tab)));
+
+$('adjDone').addEventListener('click',endAdjust);
+let sliderOnlyTimer=null;
+$('sliderOnly').addEventListener('click',()=>{
+  const bar=$('adjustBar');
+  bar.classList.add('sliderOnly');
+  $('sliderOnly').textContent='Slider-only view active';
+  if(sliderOnlyTimer)clearTimeout(sliderOnlyTimer);
+  sliderOnlyTimer=setTimeout(()=>{
+    bar.classList.remove('sliderOnly');
+    $('sliderOnly').textContent='Slider-only view (20 sec)';
+    sliderOnlyTimer=null;
+  },20000);
+});
+$('adjReset').addEventListener('click',()=>{
+  if(activeAdjustTab==='qr'){const padChanged=layout.pad!==DEFAULT_LAYOUT.pad;layout={...DEFAULT_LAYOUT};padChanged?render():applyLayout();}
+  else{textLayout[activeAdjustTab]={...DEFAULT_TEXT_LAYOUT[activeAdjustTab]};updateOverlayText();}
+});
+$('adjSize').addEventListener('input',e=>{layout.size=+e.target.value;applyLayout();});
+$('adjPad').addEventListener('input',e=>{layout.pad=+e.target.value;render();});
+$('adjX').addEventListener('input',e=>{layout.x=+e.target.value;applyLayout();});
+$('adjY').addEventListener('input',e=>{layout.y=+e.target.value;applyLayout();});
+// Drag the QR itself to move it
+let drag=null;
+$('qr').addEventListener('pointerdown',e=>{
+  if(!adjusting)return;e.preventDefault();e.stopPropagation();
+  $('qr').setPointerCapture(e.pointerId);
+  drag={px:e.clientX,py:e.clientY,x:layout.x,y:layout.y};
+});
+$('qr').addEventListener('pointermove',e=>{
+  if(!drag)return;const r=$('stage').getBoundingClientRect();
+  layout.x=Math.min(100,Math.max(0,drag.x+(e.clientX-drag.px)/r.width*100));
+  layout.y=Math.min(100,Math.max(0,drag.y+(e.clientY-drag.py)/r.height*100));
+  applyLayout();
+});
+['pointerup','pointercancel'].forEach(ev=>$('qr').addEventListener(ev,()=>{drag=null;}));
+$('qr').addEventListener('dragstart',e=>e.preventDefault());
+['pointerup','pointercancel','pointerleave'].forEach(ev=>$('stage').addEventListener(ev,()=>{clearTimeout(holdTimer);holdTimer=null;}));
+menu.addEventListener('click',e=>{if(e.target===menu)closeMenu();});
+// Prevent browser pinch/double-tap zoom where supported.
+document.addEventListener('gesturestart',e=>e.preventDefault(),{passive:false});
+document.addEventListener('touchmove',e=>{if(e.touches.length>1)e.preventDefault();},{passive:false});
+</script>
+
+</body></html>
