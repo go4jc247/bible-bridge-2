@@ -525,9 +525,9 @@ document.addEventListener('visibilitychange',()=>{
   }
 });
 window.addEventListener('pageshow',()=>updateTimestamp());
-window.addEventListener('focus',()=>{
-  if(document.visibilityState==='visible')updateTimestamp();
-});
+// visibilitychange/pageshow handle returning to the page; avoid refreshing
+// again on focus because browsers often fire both events for the same return.
+
 // Create a fresh QR immediately on initial page load.
 updateTimestamp();
 $('now').onclick=updateTimestamp;
@@ -552,7 +552,8 @@ $('content').addEventListener('input',render);
 $('content').value = ORIG + currentTimestamp();
 updateTimestamp();
 updateOverlayText();
-setInterval(updateTimestamp,1000);
+// Do not run updateTimestamp on an interval: the QR should stay stable
+// while this page is active and refresh only on initial load/return.
 setInterval(updateOverlayText,1000);
 restoreCachedImages();
 // Long-press to open options; context menu also works on desktop.
