@@ -513,6 +513,23 @@ function updateTimestamp(){
   $('content').value=activeUsername+QR_SUFFIX+ts;
   render();
 }
+// Always generate a fresh timestamped QR when the page is opened or
+// when the user returns to it after switching tabs/apps or minimizing.
+let wasHidden=document.visibilityState==='hidden';
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='hidden'){
+    wasHidden=true;
+  }else if(wasHidden){
+    wasHidden=false;
+    updateTimestamp();
+  }
+});
+window.addEventListener('pageshow',()=>updateTimestamp());
+window.addEventListener('focus',()=>{
+  if(document.visibilityState==='visible')updateTimestamp();
+});
+// Create a fresh QR immediately on initial page load.
+updateTimestamp();
 $('now').onclick=updateTimestamp;
 $('backgroundFile').addEventListener('change',e=>{
   const file=e.target.files && e.target.files[0]; if(!file) return;
