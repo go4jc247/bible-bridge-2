@@ -858,19 +858,36 @@ function closeClock(){
 function senCfg(){if(!state.prefs.senior)state.prefs.senior={on:false,mode:"daily"};return state.prefs.senior}
 function senOn(){return !!(state.prefs.senior&&state.prefs.senior.on)}
 var SEN={el:null,btn:null,lab:null,sub:null,x:null,alarm:false,st:"",mode:"daily",plan:null,idx:0,chain:[],i:0,pre:false,v:null,a:null,started:false,errored:false,alarmD:null,otherD:null,wl:null};
+var SENICONS={
+play:'<path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z" fill="currentColor"/>',
+pause:'<rect x="5" y="4" width="5" height="16" rx="1.6" fill="currentColor"/><rect x="14" y="4" width="5" height="16" rx="1.6" fill="currentColor"/>',
+nextday:'<rect x="3" y="5" width="18" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 10h18M8 3v4M16 3v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M9 14l3.2 2.5L9 19z M13.5 14l3.2 2.5-3.2 2.5z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/>',
+nextbook:'<path d="M3 5.5C5.5 4 8.7 4 12 6c3.3-2 6.5-2 9-.5v13c-2.5-1.5-5.7-1.5-9 .5-3.3-2-6.5-2-9-.5z M12 6v13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14.5 10.5l2.6 1.8-2.6 1.8z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/>',
+snooze:'<path d="M10 5a2 2 0 1 1 4 0 6 6 0 0 1 3 5v3l1.6 3H5.4L7 13v-3a6 6 0 0 1 3-5z M10 19a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/><path d="M16.5 2.5h3.5l-3.5 3.5H20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
+retry:'<path d="M19.5 12a7.5 7.5 0 1 1-2.4-5.5M19.5 4v4.5H15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+};
 function senBuild(){
   if(SEN.el)return;
   var lab=h("span",{class:"senLab"});
-  var btn=h("button",{class:"senBtn",type:"button"},[lab]);
+  var icn=h("span",{class:"senIc",hidden:"","aria-hidden":"true"});
+  var btn=h("button",{class:"senBtn",type:"button"},[icn,lab]);
   var sub=h("div",{class:"senSub","aria-live":"polite"});
   var x=h("button",{class:"senX",type:"button","aria-label":"Exit"},[ic("x")]);
-  var el=h("div",{class:"senWrap",id:"senior",hidden:""},[x,btn,sub]);
+  var clk=h("div",{class:"senClk","aria-hidden":"true"});
+  var el=h("div",{class:"senWrap senGo",id:"senior",hidden:""},[btn,clk,sub,x]);
   document.body.appendChild(el);
-  SEN.el=el;SEN.btn=btn;SEN.lab=lab;SEN.sub=sub;SEN.x=x;
+  SEN.el=el;SEN.btn=btn;SEN.lab=lab;SEN.icn=icn;SEN.clk=clk;SEN.sub=sub;SEN.x=x;
   btn.onclick=senTap;
   // the X waits a beat: if it was really the start of the triple-tap secret door, the 2nd tap cancels the exit
   x.onclick=function(){if(SEN.xT)return;SEN.xT=setTimeout(function(){SEN.xT=null;senExit()},450)};
+  senTick();setInterval(senTick,10000);
   window.addEventListener("resize",senFit);window.addEventListener("orientationchange",function(){setTimeout(senFit,250)});
+}
+/* the big clock at the top: just the time, no AM/PM, in the phone's own style */
+function senTick(){
+  if(!SEN.clk||SEN.el.hidden)return;
+  var t;try{t=new Intl.DateTimeFormat(undefined,{hour:"numeric",minute:"2-digit"}).formatToParts(new Date()).filter(function(p){return p.type!=="dayPeriod"}).map(function(p){return p.value}).join("").trim()}catch(e){var d=new Date();t=d.getHours()+":"+("0"+d.getMinutes()).slice(-2)}
+  if(SEN.clk.textContent!==t)SEN.clk.textContent=t;
 }
 /* make the words as big as the button allows: binary-search the largest font size whose text still fits */
 function senFit(){
@@ -886,11 +903,15 @@ function senFit(){
   }
   lab.style.fontSize=best+"px";
 }
-function senSet(st,label,sub,cls){
+/* icon = a picture on the button instead of words (sized by CSS, so it never depends on the screen's shape);
+   no icon = words, shrunk/grown to fit (used only for messages like "Pick a reading plan first") */
+function senSet(st,label,sub,cls,icon){
   SEN.st=st;
   SEN.lab.textContent=_(label);
+  if(icon&&SENICONS[icon]){SEN.icn.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true">'+SENICONS[icon]+'</svg>';SEN.icn.hidden=false;SEN.lab.hidden=true}
+  else{SEN.icn.innerHTML="";SEN.icn.hidden=true;SEN.lab.hidden=false}
   SEN.sub.textContent=sub||"";
-  SEN.btn.className="senBtn "+(cls||"senGo");
+  SEN.el.className="senWrap "+(cls||"senGo");senTick();
   SEN.btn.setAttribute("aria-label",_(label));
   senFit();
 }
@@ -926,14 +947,14 @@ function senInitDaily(idx){
   if(idx==null)idx=Math.min(Math.max(planDayIndex(plan),0),plan.days-1);
   if(idx>=plan.days){senMsg("Your plan is finished","Well done!");return}
   SEN.idx=idx;SEN.chain=senChainForDay(plan,idx);SEN.i=0;
-  if(!SEN.chain.length){senSet("finished","Next day",senDayTxt()+" · "+_("Rest day"),"senNext");return}
+  if(!SEN.chain.length){senSet("finished","Next day",senDayTxt()+" · "+_("Rest day"),"senNext","nextday");return}
   var first=-1;
   for(var k=0;k<SEN.chain.length;k++){
     if(!SEN.chain[k].units.every(function(u){return senUnitDone(plan,idx,u)})){first=k;break}
   }
-  if(first<0){senSet("finished","Next day",senDayTxt()+" · "+_("already done"),"senNext");return}
+  if(first<0){senSet("finished","Next day",senDayTxt()+" · "+_("already done"),"senNext","nextday");return}
   SEN.i=first;
-  senSet("idle","Play",senSubNow(),"senGo");
+  senSet("idle","Play",senSubNow(),"senGo","play");
 }
 function senNextBook(b){
   for(var n=b+1;n<66;n++)if(availFor(SEN.v,n,false))return n;
@@ -949,9 +970,9 @@ function senInitBible(){
   SEN.chain=[];
   for(var ch=c;ch<=BOOKS[b][1];ch++)SEN.chain.push({b:b,c:ch,units:null});
   SEN.i=0;
-  senSet("idle","Play",senSubNow(),"senGo");
+  senSet("idle","Play",senSubNow(),"senGo","play");
 }
-function senShowPlaying(){senSet("playing","Pause",senSubNow(),"senPause")}
+function senShowPlaying(){senSet("playing","Pause",senSubNow(),"senPause","pause")}
 function senLoadItem(){
   var it=SEN.chain[SEN.i];if(!it)return false;
   var url=almChapterUrl(SEN.v,it);
@@ -961,7 +982,7 @@ function senLoadItem(){
 function senPlayNow(){
   var a=SEN.a,p=a.play();
   senShowPlaying();senWake(true);
-  if(p&&p.then)p.then(null,function(){senSet("paused","Play",_("Tap to start")+" · "+senSubNow(),"senGo");senWake(false)});
+  if(p&&p.then)p.then(null,function(){senSet("paused","Play",_("Tap to start")+" · "+senSubNow(),"senGo","play");senWake(false)});
 }
 /* starts (or restarts) the chain at SEN.i -- always called straight from a tap so the browser allows sound */
 function senBegin(){
@@ -982,7 +1003,7 @@ function senBegin(){
 function senErrored(){
   if(SEN.pre){SEN.pre=false;if(senLoadItem())senPlayNow();else senFinish();return}   // a missing book-name clip: skip to the chapter
   SEN.errored=true;senWake(false);
-  senSet("paused","Try again",_("Could not load the audio. Check your connection.")+" · "+senSubNow(),"senGo");
+  senSet("paused","Try again",_("Could not load the audio. Check your connection.")+" · "+senSubNow(),"senGo","retry");
 }
 function senChapterDone(it){
   if(SEN.mode==="daily"&&SEN.plan&&it.units){
@@ -1011,12 +1032,12 @@ function senFinish(){
   senWake(false);
   if(SEN.mode==="daily"){
     if(!SEN.plan||SEN.idx+1>=SEN.plan.days){senMsg("Your plan is finished","Well done!");return}
-    senSet("finished","Next day",senDayTxt()+" "+_("is done")+" · "+_f("Next: Day {0}",[SEN.idx+2]),"senNext");
+    senSet("finished","Next day",senDayTxt()+" "+_("is done")+" · "+_f("Next: Day {0}",[SEN.idx+2]),"senNext","nextday");
   }else{
     var last=SEN.chain[SEN.chain.length-1],nb=last?senNextBook(last.b):-1;
     if(nb<0){senMsg("The end of the Bible","Well done!");return}
     SEN.nextBook=nb;
-    senSet("finished","Next book",_(BEN[last.b])+" "+_("is done")+" · "+_("Next")+": "+_(BEN[nb]),"senNext");
+    senSet("finished","Next book",_(BEN[last.b])+" "+_("is done")+" · "+_("Next")+": "+_(BEN[nb]),"senNext","nextbook");
   }
 }
 function senAdvance(){
@@ -1046,7 +1067,7 @@ function senTap(){
   else if(st==="playing"){
     try{SEN.a.pause()}catch(e){}
     senWake(false);
-    senSet("paused","Play",_("Paused")+" · "+senSubNow(),"senGo");
+    senSet("paused","Play",_("Paused")+" · "+senSubNow(),"senGo","play");
   }
   else if(st==="finished")senAdvance();
 }
@@ -1081,7 +1102,7 @@ function senOpenFor(v,b,c,list){
     senInitDaily(idx);
     var k=-1;
     for(var q=0;q<SEN.chain.length;q++)if(SEN.chain[q].b===list[0].b&&SEN.chain[q].c===list[0].c){k=q;break}
-    if(k>=0){SEN.i=k;senSet("idle","Play",senSubNow(),"senGo")}   // asked for this one: play it even if the day was already done
+    if(k>=0){SEN.i=k;senSet("idle","Play",senSubNow(),"senGo","play")}   // asked for this one: play it even if the day was already done
   }else{
     senCfg().bible={b:b,c:c};save();
     senInitBible();
@@ -1104,12 +1125,12 @@ function senAlarmOpen(d){
   senBuild();
   if(d)SEN.alarmD=d;
   SEN.alarm=true;SEN.el.hidden=false;document.body.style.overflow="hidden";
-  senSet("alarm","Tap to snooze",SEN.alarmD&&SEN.alarmD.plan?_f("Day {0}",[SEN.alarmD.idx+1]):"","senSnooze");
+  senSet("alarm","Tap to snooze",SEN.alarmD&&SEN.alarmD.plan?_f("Day {0}",[SEN.alarmD.idx+1]):"","senSnooze","snooze");
 }
-function senAlarmPlaying(){if(senAlarmActive())senSet("alarm","Tap to snooze",SEN.sub.textContent,"senSnooze")}
-function senAlarmBlocked(){if(senAlarmActive())senSet("alarm-blocked","Tap to start",SEN.sub.textContent,"senGo")}
+function senAlarmPlaying(){if(senAlarmActive())senSet("alarm","Tap to snooze",SEN.sub.textContent,"senSnooze","snooze")}
+function senAlarmBlocked(){if(senAlarmActive())senSet("alarm-blocked","Tap to start",SEN.sub.textContent,"senGo","play")}
 function senAlarmMsg(msg){senBuild();SEN.alarm=true;SEN.el.hidden=false;senSet("alarm-msg","OK",msg,"senMsg")}
-function senAlarmOther(d){senBuild();SEN.otherD=d;SEN.alarm=true;SEN.el.hidden=false;senSet("alarm-other","Tap to play",_("Today’s Bible reading"),"senGo")}
+function senAlarmOther(d){senBuild();SEN.otherD=d;SEN.alarm=true;SEN.el.hidden=false;senSet("alarm-other","Tap to play",_("Today’s Bible reading"),"senGo","play")}
 function senAlarmClose(){
   if(!SEN.alarm)return;
   SEN.alarm=false;SEN.st="";
