@@ -665,6 +665,7 @@ function almStart(d){
     }
     almClear();
     if(CLK.face)clkRingingOff();   // today's reading finished playing on its own
+    senAlarmDone();   // senior mode: the one button turns into "Next day"
   };
   a.onerror=function(){   // a missing/bad clip: just skip straight to the chapter
     if(ALM.pre){ALM.pre=false;if(almLoadChapter())almTryPlay(null,clkNeedsTap);else almClear()}
@@ -675,6 +676,7 @@ function almStart(d){
   markOpenedDay(d.plan,d.idx);
 }
 function almOnPlaying(){
+  senAlarmPlaying();
   if(CLK.face){CLK.face.prompt.textContent="Tap to snooze";CLK.face.prompt.onclick=clkSnoozeTap}
   almFadeIn();
 }
@@ -711,12 +713,14 @@ function clkRingingOff(){
 }
 /* the browser blocked playback (no user gesture) — ask for one tap instead of ringing silently */
 function clkNeedsTap(){
+  senAlarmBlocked();
   if(!CLK.face)return;
   CLK.face.root.classList.add("dpFiring");
   CLK.face.prompt.textContent="🔔 Tap to start your reading";
   CLK.face.prompt.onclick=function(){almTryPlay(almOnPlaying,clkNeedsTap)};
 }
 function clkSnoozeTap(){
+  senAlarmClose();
   almPauseRewind();
   clkRingingOff();
   state.snoozeUntil=Date.now()+9*60000;save();
@@ -725,16 +729,19 @@ function clkSnoozeTap(){
 function clkFire(){
   var face=CLK.face;
   face.root.classList.add("dpFiring");
-  if(ALM.audio){almTryPlay(almOnPlaying,clkNeedsTap);return}   // picking back up after a snooze — don't restart
+  if(ALM.audio){if(senOn())senAlarmOpen();almTryPlay(almOnPlaying,clkNeedsTap);return}   // picking back up after a snooze — don't restart
   var d=bestDailySource(true);
   if(!d.ok){
+    if(senOn()){senAlarmMsg(d.msg);return}
     face.prompt.textContent=d.msg;
     face.prompt.onclick=function(){clkRingingOff()};
     return;
   }
   if(d.kind==="app"){
+    if(senOn())senAlarmOpen(d);
     almStart(d);
   }else{
+    if(senOn()){senAlarmOther(d);return}
     face.prompt.textContent="🔔 Tap to play today’s Bible reading";
     face.prompt.onclick=function(){runDailySource(d);state.snoozeUntil=Date.now()+9*60000;save();clkRingingOff()};
   }
@@ -822,6 +829,7 @@ function seekReaderAudioOnce(t){
    behaviour for a Safari tab/PWA) — that wipes ALM, but state.alarmFiredDate survives (it's saved), so if the
    alarm genuinely went off today we still open today's reading from the top rather than just closing on nothing. */
 function closeClock(){
+  senAlarmClose();
   CLK.open=false;
   if(CLK.timer){clearInterval(CLK.timer);CLK.timer=null}
   var v=ALM.v,us=ALM.us,i=ALM.i;
@@ -837,6 +845,289 @@ function closeClock(){
     seekReaderAudioOnce(resumeAt);
   }else if(firedToday)playTodaysReading(false);
   else if(SWPENDING){SWPENDING=false;showUpdateSheet()}   // nothing to hand off right now, so this is the safe moment to ask
+}
+/* ---------- senior mode ----------
+   A hidden setting (triple-tap the top-right corner of any screen -> menu). When it is on, the app opens straight to
+   ONE huge button: Play / Pause, and when the reading is over, "Next day" (daily plan) or "Next book" (whole Bible).
+   The bedside alarm uses the same screen, but there the one button is "Snooze" (tap -> back to the clock; the alarm
+   comes back after the snooze, like always). Small X in the top-right corner leaves it.
+   It reuses the alarm's one pre-unlocked <audio> element (almAudio) so sound keeps going from chapter to chapter. */
+function senCfg(){if(!state.prefs.senior)state.prefs.senior={on:false,mode:"daily"};return state.prefs.senior}
+function senOn(){return !!(state.prefs.senior&&state.prefs.senior.on)}
+var SEN={el:null,btn:null,lab:null,sub:null,x:null,alarm:false,st:"",mode:"daily",plan:null,idx:0,chain:[],i:0,pre:false,v:null,a:null,started:false,errored:false,alarmD:null,otherD:null,wl:null};
+function senBuild(){
+  if(SEN.el)return;
+  var lab=h("span",{class:"senLab"});
+  var btn=h("button",{class:"senBtn",type:"button"},[lab]);
+  var sub=h("div",{class:"senSub","aria-live":"polite"});
+  var x=h("button",{class:"senX",type:"button","aria-label":"Exit"},[ic("x")]);
+  var el=h("div",{class:"senWrap",id:"senior",hidden:""},[x,btn,sub]);
+  document.body.appendChild(el);
+  SEN.el=el;SEN.btn=btn;SEN.lab=lab;SEN.sub=sub;SEN.x=x;
+  btn.onclick=senTap;
+  // the X waits a beat: if it was really the start of the triple-tap secret door, the 2nd tap cancels the exit
+  x.onclick=function(){if(SEN.xT)return;SEN.xT=setTimeout(function(){SEN.xT=null;senExit()},450)};
+  window.addEventListener("resize",senFit);window.addEventListener("orientationchange",function(){setTimeout(senFit,250)});
+}
+/* make the words as big as the button allows: binary-search the largest font size whose text still fits */
+function senFit(){
+  if(!SEN.el||SEN.el.hidden)return;
+  var lab=SEN.lab,btn=SEN.btn,cs=getComputedStyle(btn);
+  var pw=btn.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);
+  var ph=btn.clientHeight-parseFloat(cs.paddingTop)-parseFloat(cs.paddingBottom);
+  if(pw<=0||ph<=0)return;
+  var lo=12,hi=Math.max(lo+1,ph),best=lo;
+  for(var n=0;n<16;n++){
+    var mid=(lo+hi)/2;lab.style.fontSize=mid+"px";
+    if(lab.scrollWidth<=pw+0.5&&lab.scrollHeight<=ph+0.5){best=mid;lo=mid}else hi=mid;
+  }
+  lab.style.fontSize=best+"px";
+}
+function senSet(st,label,sub,cls){
+  SEN.st=st;
+  SEN.lab.textContent=_(label);
+  SEN.sub.textContent=sub||"";
+  SEN.btn.className="senBtn "+(cls||"senGo");
+  SEN.btn.setAttribute("aria-label",_(label));
+  senFit();
+}
+function senMsg(title,sub){senSet("msg",title,sub,"senMsg")}
+function senChName(it){return _(BEN[it.b])+" "+it.c}
+function senDayTxt(){return _f("Day {0}",[SEN.idx+1])}
+function senSubNow(){
+  var it=SEN.chain[SEN.i];if(!it)return"";
+  return (SEN.mode==="daily"?senDayTxt()+" · ":"")+senChName(it);
+}
+function senWake(on){
+  if(on){
+    if(SEN.wl||!("wakeLock" in navigator))return;
+    navigator.wakeLock.request("screen").then(function(w){SEN.wl=w;w.addEventListener("release",function(){if(SEN.wl===w)SEN.wl=null})}).catch(function(){});
+  }else if(SEN.wl){try{SEN.wl.release()}catch(e){}SEN.wl=null}
+}
+document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible"&&SEN.st==="playing")senWake(true)});
+function senChainForDay(plan,idx){
+  var chain=[];
+  dayUnits(plan,idx).forEach(function(u){
+    var last=chain[chain.length-1];
+    if(last&&last.b===u.b&&last.c===u.c)last.units.push(u);else chain.push({b:u.b,c:u.c,units:[u]});
+  });
+  return chain;
+}
+function senUnitDone(plan,idx,u){var m=chMark(plan,idx,u);return m==="p"||m==="c"}
+/* get a daily-reading day ready; idx omitted = today */
+function senInitDaily(idx){
+  SEN.mode="daily";SEN.started=false;SEN.errored=false;SEN.pre=false;
+  var plan=activePlan();
+  if(!plan){senMsg("Pick a reading plan first","Tap the X in the corner, choose a plan, then come back.");return}
+  SEN.plan=plan;
+  if(idx==null)idx=Math.min(Math.max(planDayIndex(plan),0),plan.days-1);
+  if(idx>=plan.days){senMsg("Your plan is finished","Well done!");return}
+  SEN.idx=idx;SEN.chain=senChainForDay(plan,idx);SEN.i=0;
+  if(!SEN.chain.length){senSet("finished","Next day",senDayTxt()+" · "+_("Rest day"),"senNext");return}
+  var first=-1;
+  for(var k=0;k<SEN.chain.length;k++){
+    if(!SEN.chain[k].units.every(function(u){return senUnitDone(plan,idx,u)})){first=k;break}
+  }
+  if(first<0){senSet("finished","Next day",senDayTxt()+" · "+_("already done"),"senNext");return}
+  SEN.i=first;
+  senSet("idle","Play",senSubNow(),"senGo");
+}
+function senNextBook(b){
+  for(var n=b+1;n<66;n++)if(availFor(SEN.v,n,false))return n;
+  return -1;
+}
+function senInitBible(){
+  SEN.mode="bible";SEN.started=false;SEN.errored=false;SEN.pre=false;
+  var cfg=senCfg(),pos=cfg.bible;
+  if(!pos){var sv=window.BBReader&&BBReader.saved&&BBReader.saved();pos=sv?{b:sv.b,c:sv.c}:{b:0,c:1}}
+  var b=Math.max(0,Math.min(65,pos.b|0)),c=Math.max(1,pos.c|0);
+  if(!availFor(SEN.v,b,false)){var nb=senNextBook(b-1);if(nb<0){senMsg("No audio for this version","Tap the X, then pick another version.");return}b=nb;c=1}
+  if(c>BOOKS[b][1])c=1;
+  SEN.chain=[];
+  for(var ch=c;ch<=BOOKS[b][1];ch++)SEN.chain.push({b:b,c:ch,units:null});
+  SEN.i=0;
+  senSet("idle","Play",senSubNow(),"senGo");
+}
+function senShowPlaying(){senSet("playing","Pause",senSubNow(),"senPause")}
+function senLoadItem(){
+  var it=SEN.chain[SEN.i];if(!it)return false;
+  var url=almChapterUrl(SEN.v,it);
+  if(!url){SEN.i++;return senLoadItem()}
+  SEN.a.src=url;SEN.a.currentTime=0;return true;
+}
+function senPlayNow(){
+  var a=SEN.a,p=a.play();
+  senShowPlaying();senWake(true);
+  if(p&&p.then)p.then(null,function(){senSet("paused","Play",_("Tap to start")+" · "+senSubNow(),"senGo");senWake(false)});
+}
+/* starts (or restarts) the chain at SEN.i -- always called straight from a tap so the browser allows sound */
+function senBegin(){
+  var a=almAudio();SEN.a=a;SEN.started=true;SEN.errored=false;
+  try{a.pause()}catch(e){}
+  if(CLK.fadeIv){clearInterval(CLK.fadeIv);CLK.fadeIv=null}
+  a.onended=senEnded;a.onerror=senErrored;a.volume=1;
+  var it=SEN.chain[SEN.i],clip=it?almBookClipUrl(SEN.v,it):"";
+  SEN.pre=!!clip;
+  if(clip){a.src=clip;a.currentTime=0}
+  else if(!senLoadItem()){senFinish();return}
+  senPlayNow();
+}
+function senErrored(){
+  if(SEN.pre){SEN.pre=false;if(senLoadItem())senPlayNow();else senFinish();return}   // a missing book-name clip: skip to the chapter
+  SEN.errored=true;senWake(false);
+  senSet("paused","Try again",_("Could not load the audio. Check your connection.")+" · "+senSubNow(),"senGo");
+}
+function senChapterDone(it){
+  if(SEN.mode==="daily"&&SEN.plan&&it.units){
+    it.units.forEach(function(u){if(!senUnitDone(SEN.plan,SEN.idx,u))setMark(SEN.plan,SEN.idx,u,"p")});
+    autoDone(SEN.plan,SEN.idx);save();setTimeout(refreshPlanViews,0);
+  }else if(SEN.mode==="bible"){
+    var nc=it.c+1,nb=it.b;
+    if(nc>BOOKS[nb][1]){nb=senNextBook(nb);nc=1}
+    senCfg().bible=nb<0?{b:it.b,c:it.c}:{b:nb,c:nc};save();
+  }
+}
+function senEnded(){
+  if(SEN.pre){SEN.pre=false;if(senLoadItem())senPlayNow();else senFinish();return}
+  var it=SEN.chain[SEN.i];if(!it){senFinish();return}
+  senChapterDone(it);
+  SEN.i++;
+  if(SEN.i<SEN.chain.length){
+    var nx=SEN.chain[SEN.i],clip=nx.b!==it.b?almBookClipUrl(SEN.v,nx):"";
+    if(clip){SEN.pre=true;SEN.a.src=clip;SEN.a.currentTime=0;senPlayNow();return}   // crossing into another book mid-day
+    if(senLoadItem())senPlayNow();else senFinish();
+    return;
+  }
+  senFinish();
+}
+function senFinish(){
+  senWake(false);
+  if(SEN.mode==="daily"){
+    if(!SEN.plan||SEN.idx+1>=SEN.plan.days){senMsg("Your plan is finished","Well done!");return}
+    senSet("finished","Next day",senDayTxt()+" "+_("is done")+" · "+_f("Next: Day {0}",[SEN.idx+2]),"senNext");
+  }else{
+    var last=SEN.chain[SEN.chain.length-1],nb=last?senNextBook(last.b):-1;
+    if(nb<0){senMsg("The end of the Bible","Well done!");return}
+    SEN.nextBook=nb;
+    senSet("finished","Next book",_(BEN[last.b])+" "+_("is done")+" · "+_("Next")+": "+_(BEN[nb]),"senNext");
+  }
+}
+function senAdvance(){
+  if(SEN.mode==="daily"){
+    senInitDaily(SEN.idx+1);
+    if(SEN.st==="idle")senBegin();
+  }else{
+    senCfg().bible={b:SEN.nextBook,c:1};save();
+    senInitBible();
+    if(SEN.st==="idle")senBegin();
+  }
+}
+function senTap(){
+  var st=SEN.st;
+  if(SEN.alarm){
+    if(st==="alarm-blocked")almTryPlay(almOnPlaying,clkNeedsTap);
+    else if(st==="alarm-other"){var d=SEN.otherD;senAlarmClose();runDailySource(d);state.snoozeUntil=Date.now()+9*60000;save();clkRingingOff()}
+    else if(st==="alarm-msg"){senAlarmClose();clkRingingOff()}
+    else clkSnoozeTap();   // the one job of this button while the alarm rings: snooze
+    return;
+  }
+  if(st==="idle")senBegin();
+  else if(st==="paused"){
+    if(SEN.errored||!SEN.started||!SEN.a||!SEN.a.src)senBegin();
+    else senPlayNow();
+  }
+  else if(st==="playing"){
+    try{SEN.a.pause()}catch(e){}
+    senWake(false);
+    senSet("paused","Play",_("Paused")+" · "+senSubNow(),"senGo");
+  }
+  else if(st==="finished")senAdvance();
+}
+function senExit(){
+  if(SEN.alarm){senAlarmClose();return}   // alarm view: just back to the clock face (its own X turns the alarm off)
+  senClose(true);
+}
+function senClose(stopAudio){
+  if(stopAudio&&SEN.a){try{SEN.a.pause()}catch(e){}SEN.a.onended=null;SEN.a.onerror=null}
+  senWake(false);
+  SEN.st="";SEN.alarm=false;
+  if(SEN.el)SEN.el.hidden=true;
+  if($("screen").hidden)document.body.style.overflow="";
+}
+function openSenior(){
+  senBuild();
+  try{var ra=window.BBReader&&BBReader._t&&BBReader._t.A;if(ra)ra.pause()}catch(e){}
+  if(SEN.a&&SEN.st==="playing"){try{SEN.a.pause()}catch(e){}}
+  SEN.alarm=false;SEN.el.hidden=false;document.body.style.overflow="hidden";
+  var v=curVersion();SEN.v=v;
+  if(!v.app||v.noaudio){senMsg("This version has no built-in audio","Tap the X, then pick a version such as KJV.");return}
+  if(senCfg().mode==="bible")senInitBible();else senInitDaily();
+}
+/* ----- the alarm: same screen, but the button is Snooze ----- */
+function senAlarmActive(){return !!(SEN.alarm&&SEN.el&&!SEN.el.hidden)}
+function senAlarmOpen(d){
+  senBuild();
+  if(d)SEN.alarmD=d;
+  SEN.alarm=true;SEN.el.hidden=false;document.body.style.overflow="hidden";
+  senSet("alarm","Tap to snooze",SEN.alarmD&&SEN.alarmD.plan?_f("Day {0}",[SEN.alarmD.idx+1]):"","senSnooze");
+}
+function senAlarmPlaying(){if(senAlarmActive())senSet("alarm","Tap to snooze",SEN.sub.textContent,"senSnooze")}
+function senAlarmBlocked(){if(senAlarmActive())senSet("alarm-blocked","Tap to start",SEN.sub.textContent,"senGo")}
+function senAlarmMsg(msg){senBuild();SEN.alarm=true;SEN.el.hidden=false;senSet("alarm-msg","OK",msg,"senMsg")}
+function senAlarmOther(d){senBuild();SEN.otherD=d;SEN.alarm=true;SEN.el.hidden=false;senSet("alarm-other","Tap to play",_("Today’s Bible reading"),"senGo")}
+function senAlarmClose(){
+  if(!SEN.alarm)return;
+  SEN.alarm=false;SEN.st="";
+  if(SEN.el)SEN.el.hidden=true;
+  if($("screen").hidden)document.body.style.overflow="";
+}
+/* the alarm's reading finished on its own: keep the screen, turn the button into "Next day" */
+function senAlarmDone(){
+  if(!senAlarmActive())return;
+  var d=SEN.alarmD;SEN.alarm=false;
+  if(!d||!d.plan){senAlarmClose();return}
+  d.us.forEach(function(u){if(!senUnitDone(d.plan,d.idx,u))setMark(d.plan,d.idx,u,"p")});
+  autoDone(d.plan,d.idx);save();setTimeout(refreshPlanViews,0);
+  SEN.v=d.v;SEN.mode="daily";SEN.plan=d.plan;SEN.idx=d.idx;SEN.chain=[];SEN.i=0;SEN.started=false;SEN.errored=false;
+  senFinish();
+}
+/* ----- the secret door: tap the top-right corner three times, on any screen ----- */
+(function(){
+  var taps=[];
+  document.addEventListener("click",function(e){
+    if(e.target&&e.target.closest&&e.target.closest("#senMenu"))return;
+    if(e.clientX<window.innerWidth-64||e.clientY>64)return;
+    var now=Date.now();
+    taps=taps.filter(function(t){return now-t<1400});taps.push(now);
+    if(taps.length>=3){taps=[];e.preventDefault();e.stopPropagation();senMenu();return}
+    if(taps.length===2){if(SEN.xT){clearTimeout(SEN.xT);SEN.xT=null}e.preventDefault();e.stopPropagation()}   // the 2nd tap shouldn't also press whatever is under the corner
+  },true);
+})();
+function senMenu(){
+  if($("senMenu"))return;
+  var cfg=senCfg();
+  var wrap=h("div",{id:"senMenu",class:"senMenuWrap"});
+  function close(){if(wrap.parentNode)wrap.parentNode.removeChild(wrap)}
+  wrap.onclick=function(e){if(e.target===wrap)close()};
+  var box=h("div",{class:"senMenuBox",role:"dialog","aria-label":"Senior mode"});
+  box.appendChild(h("div",{class:"senMenuTitle",text:"Senior mode"}));
+  box.appendChild(h("p",{class:"senMenuNote",text:"Opens the app to one big button: Play, Pause, then Next day or Next book. The alarm uses it too, and the button snoozes."}));
+  var onBtn=h("button",{class:"senMenuBtn"+(cfg.on?" on":""),type:"button",onclick:function(){
+    cfg.on=!cfg.on;save();close();
+    if(cfg.on)openSenior();else{senClose(true);toast("Senior mode is off")}
+  }},[cfg.on?"Senior mode is ON — tap to turn off":"Senior mode is OFF — tap to turn on"]);
+  box.appendChild(onBtn);
+  var row=h("div",{class:"senMenuRow"});
+  [["daily","Daily reading"],["bible","Whole Bible"]].forEach(function(m){
+    row.appendChild(h("button",{class:"senMenuBtn small"+(cfg.mode===m[0]?" on":""),type:"button","aria-pressed":cfg.mode===m[0]?"true":"false",onclick:function(){
+      cfg.mode=m[0];save();close();senMenu();
+      if(cfg.on&&SEN.el&&!SEN.el.hidden&&!SEN.alarm){senClose(true);openSenior()}
+    }},[m[1]]));
+  });
+  box.appendChild(row);
+  if(cfg.on)box.appendChild(h("button",{class:"senMenuBtn",type:"button",onclick:function(){close();openSenior()}},["Open the senior screen now"]));
+  box.appendChild(h("button",{class:"senMenuBtn ghost",type:"button",onclick:close},["Close"]));
+  wrap.appendChild(box);document.body.appendChild(wrap);
 }
 function openAlarmSheet(){
   openSheet(function(box){
@@ -2043,7 +2334,10 @@ if(state.prefs.alarmOn)armAlarmWatch();   // picking back up on reopen -- no nee
 var ENTRY=new URLSearchParams(location.search).get("go");
 if(ENTRY==="play"||ENTRY==="clock"){
   $("splash").hidden=true;
-  if(ENTRY==="play")openDailyPlay();else openClock();
+  if(ENTRY==="play"){if(senOn())openSenior();else openDailyPlay()}else openClock();
+}else if(senOn()){
+  $("splash").hidden=true;   // senior mode: straight to the one big button
+  openSenior();
 }else splashStart();
 
 /* header logo + sticky tab bar state */
