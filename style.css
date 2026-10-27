@@ -422,3 +422,28 @@ a.chbtn:active{opacity:.8;transform:scale(.95)}
 .dpFiring{animation:dpPulse 1.6s ease-in-out infinite}
 .dpFiring .clkPrompt{display:block}
 @keyframes dpPulse{0%,100%{background:#0a0f1c}50%{background:#1b2440}}
+
+/* ---------- senior mode: one huge button ---------- */
+.senWrap{position:fixed;inset:0;z-index:45;background:#0a0f1c;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;padding:calc(env(safe-area-inset-top,0px) + 54px) 12px calc(env(safe-area-inset-bottom,0px) + 10px);text-align:center;-webkit-user-select:none;user-select:none}
+.senWrap[hidden]{display:none}
+.senX{position:absolute;top:calc(env(safe-area-inset-top,0px) + 8px);right:10px;width:40px;height:40px;border:0;border-radius:20px;background:rgba(255,255,255,.14);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.senX .ic{width:18px;height:18px}
+.senBtn{all:unset;box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:min(96vw,900px);height:75vh;height:75dvh;max-height:calc(100vh - 140px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));max-height:calc(100dvh - 140px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));border-radius:38px;padding:4%;cursor:pointer;color:#fff;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.senBtn:active{filter:brightness(.88)}
+.senBtn:focus-visible{outline:5px solid #ffd84d;outline-offset:3px}
+.senLab{display:block;width:100%;font:800 40px/1.05 var(--sans);overflow-wrap:normal;word-break:normal;text-align:center;letter-spacing:-.01em}
+.senGo{background:#1f8f4e}
+.senPause{background:#b86b00}
+.senNext{background:#2563c9}
+.senSnooze{background:#ffd84d;color:#0a0f1c}
+.senMsg{background:#38425c;cursor:default}
+.senSub{font:600 clamp(16px,4.4vw,26px)/1.25 var(--sans);color:rgba(255,255,255,.82);min-height:1.3em;max-width:96vw;padding:0 6px}
+.senMenuWrap{position:fixed;inset:0;z-index:9999;background:rgba(5,10,20,.6);display:flex;align-items:center;justify-content:center;padding:20px}
+.senMenuBox{background:var(--card,#fff);color:var(--ink,#0f2a4a);border-radius:20px;padding:20px;width:min(100%,380px);display:flex;flex-direction:column;gap:10px;box-shadow:0 12px 40px rgba(0,0,0,.4)}
+.senMenuTitle{font:800 20px var(--sans)}
+.senMenuNote{margin:0;font:14px/1.4 var(--sans);color:var(--muted,#5d6b82)}
+.senMenuRow{display:flex;gap:8px}
+.senMenuBtn{flex:1;min-height:48px;border-radius:12px;border:1.5px solid var(--line,#ccd);background:transparent;color:inherit;font:700 15px var(--sans);cursor:pointer;padding:8px 12px}
+.senMenuBtn.on{background:var(--navy,#1d4c8f);border-color:var(--navy,#1d4c8f);color:#fff}
+.senMenuBtn.ghost{border-color:transparent;color:var(--muted,#5d6b82)}
+.senMenuBtn.small{font-size:14px}
