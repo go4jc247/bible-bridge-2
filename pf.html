@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}
 .stage .overlayText{z-index:3;color:#fff;font-family:Arial,Helvetica,sans-serif;font-weight:600;text-shadow:0 1px 3px #000,1px 0 2px #000,-1px 0 2px #000;overflow:visible}
 .stage #qr{z-index:2}
 .adjustTabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;pointer-events:auto}
@@ -100,6 +100,10 @@ body.adjusting #qr{touch-action:none;cursor:grab;outline:2px dashed #fff;outline
 #adjustBar.sliderOnly .adj{grid-template-columns:1fr;gap:0}
 #adjustBar.sliderOnly .adj span,#adjustBar.sliderOnly .adj output{display:none}
 #adjustBar.sliderOnly .adj input[type=range]{height:34px}
+/* Full screen: the stage fills the entire screen, including the area under the iPhone status bar. */
+html,body{height:100%}
+.wrap,.stage{position:fixed!important;inset:0!important;width:auto!important;height:auto!important;aspect-ratio:auto!important}
+.stage #background{object-fit:cover;object-position:top center}
 
 </style>
 <div class="wrap">
@@ -144,6 +148,7 @@ body.adjusting #qr{touch-action:none;cursor:grab;outline:2px dashed #fff;outline
     <label class="adj"><span>White border</span><input id="adjPad" type="range" min="0" max="12" step="0.5"><output id="outPad"></output></label>
     <label class="adj"><span>Left / right</span><input id="adjX" type="range" min="0" max="100" step="0.25"><output id="outX"></output></label>
     <label class="adj"><span>Up / down</span><input id="adjY" type="range" min="0" max="100" step="0.25"><output id="outY"></output></label>
+    <label class="adj"><span>Center image</span><input id="adjLogo" type="range" min="5" max="60" step="0.5"><output id="outLogo"></output></label>
   </div>
   <div class="adjustPanel" data-panel="name" hidden>
     <label class="adj"><span>Text size</span><input id="nameSize" type="range" min="1" max="16" step="0.1"><output id="nameSizeOut"></output></label>
@@ -367,12 +372,14 @@ const ORIG = USERNAME_CODE + QR_SUFFIX;
 const names={num:'numeric',alnum:'alnum',byte:'byte'};
 let lastMask=-1;
 // ===== QR layout (size = width of the black code area, % of screen width; x/y = centre, %) =====
-const DEFAULT_LAYOUT={size:36,pad:2,x:50,y:42};
+const DEFAULT_LAYOUT={size:36,pad:2,x:50,y:42,logo:22}; // logo = center image width, % of QR size
 let layout={...DEFAULT_LAYOUT},lastN=33;
 function applyLayout(){
   const qr=$('qr');
   qr.style.width=(layout.size*(lastN+2*layout.pad)/lastN)+'%';
-  $('centerLogo').style.width=(layout.size*0.22)+'%';$('centerLogo').style.height=(layout.size*0.22)+'%';
+  const logoW=layout.size*(layout.logo??22)/100; // % of screen width; height in vw keeps it square
+  $('centerLogo').style.width=logoW+'%';$('centerLogo').style.height=logoW+'vw';
+  $('adjLogo').value=layout.logo??22;$('outLogo').textContent=Math.round(layout.logo??22)+'%';
   qr.style.left=layout.x+'%';qr.style.top=layout.y+'%';
   qr.style.borderRadius=layout.pad>0?'12%':'0';
   $('centerLogo').style.left=layout.x+'%';$('centerLogo').style.top=layout.y+'%';
@@ -624,6 +631,7 @@ $('adjSize').addEventListener('input',e=>{layout.size=+e.target.value;applyLayou
 $('adjPad').addEventListener('input',e=>{layout.pad=+e.target.value;render();});
 $('adjX').addEventListener('input',e=>{layout.x=+e.target.value;applyLayout();});
 $('adjY').addEventListener('input',e=>{layout.y=+e.target.value;applyLayout();});
+$('adjLogo').addEventListener('input',e=>{layout.logo=+e.target.value;applyLayout();});
 // Drag the QR itself to move it
 let drag=null;
 $('qr').addEventListener('pointerdown',e=>{
