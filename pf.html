@@ -372,7 +372,7 @@ let layout={...DEFAULT_LAYOUT},lastN=33;
 function applyLayout(){
   const qr=$('qr');
   qr.style.width=(layout.size*(lastN+2*layout.pad)/lastN)+'%';
-  $('centerLogo').style.width=(layout.size*0.36)+'%';$('centerLogo').style.height=(layout.size*0.36)+'%';
+  $('centerLogo').style.width=(layout.size*0.22)+'%';$('centerLogo').style.height=(layout.size*0.22)+'%';
   qr.style.left=layout.x+'%';qr.style.top=layout.y+'%';
   qr.style.borderRadius=layout.pad>0?'12%':'0';
   $('centerLogo').style.left=layout.x+'%';$('centerLogo').style.top=layout.y+'%';
@@ -392,6 +392,40 @@ const DEFAULT_TEXT_LAYOUT={name:{size:7.3,x:50,y:19},date:{size:3.2,x:50,y:24.5}
 let textLayout={name:{...DEFAULT_TEXT_LAYOUT.name},date:{...DEFAULT_TEXT_LAYOUT.date},user:{...DEFAULT_TEXT_LAYOUT.user}};
 let overlaySettings={name:'',showName:false,showDate:true,showUsername:true,showCenterImage:true};
 let centerImageData='';
+const IMAGE_DB_NAME='parrot-qr-image-cache';
+const IMAGE_STORE='images';
+function openImageDB(){
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open(IMAGE_DB_NAME,1);
+    req.onupgradeneeded=()=>req.result.createObjectStore(IMAGE_STORE);
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+}
+async function cacheImage(key,data){
+  const db=await openImageDB();
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(IMAGE_STORE,'readwrite');
+    tx.objectStore(IMAGE_STORE).put(data,key);
+    tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+  });
+  db.close();
+}
+async function readCachedImage(key){
+  const db=await openImageDB();
+  const data=await new Promise((resolve,reject)=>{
+    const req=db.transaction(IMAGE_STORE,'readonly').objectStore(IMAGE_STORE).get(key);
+    req.onsuccess=()=>resolve(req.result||'');req.onerror=()=>reject(req.error);
+  });
+  db.close();return data;
+}
+async function restoreCachedImages(){
+  try{
+    const [bg,center]=await Promise.all([readCachedImage('background'),readCachedImage('center')]);
+    if(bg){$('background').src=bg;$('background').hidden=false;}
+    if(center){centerImageData=center;$('centerLogo').src=center;updateOverlayText();}
+  }catch(e){console.warn('Could not restore cached images',e);}
+}
 function updateOverlayText(){
   const name=$('nameText'),date=$('dateText'),user=$('usernameText');
   const d=new Date();
@@ -433,7 +467,15 @@ function applySettings(settings){
 updateOverlayText();
 $('displayName').addEventListener('input',()=>{overlaySettings.name=$('displayName').value;updateOverlayText();});
 [['showName','showName'],['showDate','showDate'],['showUsername','showUsername'],['showCenterImage','showCenterImage']].forEach(([id,key])=>$(id).addEventListener('change',()=>{overlaySettings[key]=$ (id).checked;updateOverlayText();}));
-$('centerImageFile').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{centerImageData=String(r.result);$('centerLogo').src=centerImageData;updateOverlayText();};r.readAsDataURL(f);});
+$('centerImageFile').addEventListener('change',e=>{
+  const f=e.target.files&&e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=async()=>{
+    centerImageData=String(r.result);$('centerLogo').src=centerImageData;updateOverlayText();
+    try{await cacheImage('center',centerImageData);}catch(err){alert('Could not cache center image. Try a smaller image.');}
+  };
+  r.readAsDataURL(f);
+});
 $('exportSettings').addEventListener('click',exportSettings);
 $('importSettingsBtn').addEventListener('click',()=>$('importSettingsFile').click());
 $('importSettingsFile').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{applySettings(JSON.parse(String(r.result)));}catch(err){alert('Could not read settings JSON.');}};r.readAsText(f);});
@@ -474,7 +516,12 @@ function updateTimestamp(){
 $('now').onclick=updateTimestamp;
 $('backgroundFile').addEventListener('change',e=>{
   const file=e.target.files && e.target.files[0]; if(!file) return;
-  const url=URL.createObjectURL(file); $('background').src=url; $('background').hidden=false;
+  const r=new FileReader();
+  r.onload=async()=>{
+    const data=String(r.result);$('background').src=data;$('background').hidden=false;
+    try{await cacheImage('background',data);}catch(err){alert('Could not cache background image. Try a smaller image.');}
+  };
+  r.readAsDataURL(file);
 });
 $('usernameCode').value=activeUsername;
 $('usernameCode').addEventListener('input',()=>{activeUsername=$('usernameCode').value.trim()||'USERNAME';updateTimestamp();updateOverlayText();});
@@ -490,6 +537,7 @@ updateTimestamp();
 updateOverlayText();
 setInterval(updateTimestamp,1000);
 setInterval(updateOverlayText,1000);
+restoreCachedImages();
 // Long-press to open options; context menu also works on desktop.
 const menu=$('optionsMenu');
 let holdTimer=null;
