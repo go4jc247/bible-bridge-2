@@ -469,6 +469,7 @@ function linkSheet(title,sub,listen,read,back,onGo,unkL,edit){
 window.onBBReader=function(what){try{if(what==="opened"&&typeof splashGo==="function")splashGo();renderBibleTab();if(what==="closed")refreshPlanViews()}catch(e){}};
 window.onBBChapterDone=function(tr,b,c){try{markPlayed(b,c)}catch(e){}};
 function openApp(v,b,c,play,list,bookClip){
+  if(senOn()&&v&&v.app&&!v.noaudio&&senOpenFor(v,b,c,list))return;   // senior mode: always the one big button
   if(window.BBReader&&BBReader.open(v.app,b,c,{play:!!play,list:list||null,bookClip:!!bookClip}))return;
   toast("The reader could not start. Reload the app and try again.");
 }
@@ -500,6 +501,7 @@ function dayResumeUnits(plan,idx){
   return{us:us,firstIncomplete:first};
 }
 function offerDayResume(onContinue,onBeginning){
+  if(senOn()){onContinue();return}   // senior mode: no questions, just carry on
   openSheet(function(box){
     box.appendChild(sheetHead("Continue today’s reading?",null));
     box.appendChild(h("p",{class:"note",text:"You already played part of this. Pick up where you left off, or start over from the beginning?"}));
@@ -841,6 +843,7 @@ function closeClock(){
   CLK.face=null;
   hideScreen();
   if(v&&us&&i<us.length){
+    if(senOn())SEN.resumeAt=resumeAt;
     openApp(v,us[i].b,us[i].c,true,us.slice(i).map(function(u){return{b:u.b,c:u.c}}));
     seekReaderAudioOnce(resumeAt);
   }else if(firedToday)playTodaysReading(false);
@@ -966,10 +969,14 @@ function senBegin(){
   try{a.pause()}catch(e){}
   if(CLK.fadeIv){clearInterval(CLK.fadeIv);CLK.fadeIv=null}
   a.onended=senEnded;a.onerror=senErrored;a.volume=1;
-  var it=SEN.chain[SEN.i],clip=it?almBookClipUrl(SEN.v,it):"";
+  var it=SEN.chain[SEN.i],clip=(it&&(SEN.mode==="bible"||SEN.i===0))?almBookClipUrl(SEN.v,it):"";   // the book name only leads the day off, never a resumed chapter
   SEN.pre=!!clip;
+  var at=SEN.resumeAt||0;SEN.resumeAt=0;
   if(clip){a.src=clip;a.currentTime=0}
-  else if(!senLoadItem()){senFinish();return}
+  else{
+    if(!senLoadItem()){senFinish();return}
+    if(at>1)a.addEventListener("loadedmetadata",function f(){a.removeEventListener("loadedmetadata",f);try{a.currentTime=at}catch(e){}});   // carried over from the alarm
+  }
   senPlayNow();
 }
 function senErrored(){
@@ -1053,6 +1060,34 @@ function senClose(stopAudio){
   SEN.st="";SEN.alarm=false;
   if(SEN.el)SEN.el.hidden=true;
   if($("screen").hidden)document.body.style.overflow="";
+}
+/* senior mode is on and something in the app asked to play: show the one button instead of the normal reader.
+   list = the chapters of a plan day (so we can find which day, and mark it as it plays); null = a single chapter
+   from the whole Bible. Always starts playing -- this is called straight from the tap that asked for it. */
+function senOpenFor(v,b,c,list){
+  senBuild();
+  try{var ra=window.BBReader&&BBReader._t&&BBReader._t.A;if(ra)ra.pause()}catch(e){}
+  SEN.alarm=false;SEN.el.hidden=false;document.body.style.overflow="hidden";SEN.v=v;
+  var plan=activePlan(),idx=-1;
+  if(list&&list.length&&plan){
+    var D=plan.days,t=planDayIndex(plan),cur=viewDay!=null?viewDay:Math.min(Math.max(t,0),D-1),order=[cur],i;
+    for(i=cur-1;i>=0;i--)order.push(i);
+    for(i=cur+1;i<D;i++)order.push(i);
+    for(i=0;i<order.length&&idx<0;i++){
+      if(dayUnits(plan,order[i]).some(function(u){return u.b===list[0].b&&u.c===list[0].c}))idx=order[i];
+    }
+  }
+  if(idx>=0){
+    senInitDaily(idx);
+    var k=-1;
+    for(var q=0;q<SEN.chain.length;q++)if(SEN.chain[q].b===list[0].b&&SEN.chain[q].c===list[0].c){k=q;break}
+    if(k>=0){SEN.i=k;senSet("idle","Play",senSubNow(),"senGo")}   // asked for this one: play it even if the day was already done
+  }else{
+    senCfg().bible={b:b,c:c};save();
+    senInitBible();
+  }
+  if(SEN.st==="idle")senBegin();
+  return true;
 }
 function openSenior(){
   senBuild();
@@ -1432,7 +1467,7 @@ function renderPlansTab(){
       h("button",{class:"dnav",type:"button","aria-label":"Next day",disabled:idx>=D-1?"":null,onclick:function(){viewDay=idx+1;renderPlansTab()}},[ic("chevron-right")])
     ]));
     var behind=firstMissed(plan)>=0;
-    var play=h("button",{class:"btn"+(behind?" behind":""),type:"button",style:"width:100%",onclick:function(){if(firstMissed(plan)>=0)behindSheet(plan,idx);else choosePlayDay(plan,idx)}},[
+    var play=h("button",{class:"btn"+(behind?" behind":""),type:"button",style:"width:100%",onclick:function(){if(!senOn()&&firstMissed(plan)>=0)behindSheet(plan,idx);else choosePlayDay(plan,idx)}},[
       behind?h("span",{class:"bhic",role:"img","aria-label":_("You\u2019ve fallen behind")},[ic("alert-circle")]):null,"▶︎ Play all chapters"]);
     var circ=doneCircle(isDone,_f("Day {0} complete",[idx+1]),function(){setDayDone(plan,idx,true);renderPlansTab()},function(){setDayDone(plan,idx,false);renderPlansTab()},false,function(){dayMenu(plan,idx,renderPlansTab)});
     card.appendChild(h("div",{style:"margin-top:8px"},[play]));
@@ -1504,7 +1539,7 @@ function renderBibleTab(){
   var sv=window.BBReader&&BBReader.saved();
   if(sv&&!ql){
     var sver=VERSIONS.filter(function(x){return x.app===sv.tr})[0];
-    el.appendChild(h("button",{class:"pcard",type:"button",onclick:function(){BBReader.open(sv.tr,sv.b,sv.c,{resume:true})}},[
+    el.appendChild(h("button",{class:"pcard",type:"button",onclick:function(){if(senOn()&&sver&&sver.app&&!sver.noaudio&&senOpenFor(sver,sv.b,sv.c,null))return;BBReader.open(sv.tr,sv.b,sv.c,{resume:true})}},[
       h("div",{class:"n",text:"Continue reading"}),
       h("div",{class:"s",dir:"auto",text:_(BEN[sv.b])+" "+sv.c+(sver?" \u00b7 "+vName(sver):"")})]));
   }
