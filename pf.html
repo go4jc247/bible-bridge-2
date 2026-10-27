@@ -381,12 +381,17 @@ function applyLayout(){
   $('outX').textContent=Math.round(layout.x);$('outY').textContent=Math.round(layout.y);
   try{localStorage.setItem('qrLayout',JSON.stringify(layout))}catch(e){}
 }
+// Remember the last mask across reloads so a reopened page never shows the same pattern.
+try{const m=parseInt(localStorage.getItem('qrLastMask'),10);if(m>=0&&m<8)lastMask=m;}catch(e){}
 function randomMask(){
   // Choose uniformly from the seven masks other than the previous one.
   const choices=Array.from({length:8},(_,i)=>i).filter(i=>i!==lastMask);
   lastMask=choices[Math.floor(Math.random()*choices.length)];
+  try{localStorage.setItem('qrLastMask',String(lastMask))}catch(e){}
   return lastMask;
 }
+// QR state: the mask and timestamp change ONLY in refreshQR(). Everything else re-renders with them unchanged.
+let currentMask=-1,currentTs='',booted=false,refreshCount=0;
 // Text overlay layout; values are percentages of stage dimensions.
 const DEFAULT_TEXT_LAYOUT={name:{size:7.3,x:50,y:19},date:{size:3.2,x:50,y:24.5},user:{size:3.1,x:50,y:58}};
 let textLayout={name:{...DEFAULT_TEXT_LAYOUT.name},date:{...DEFAULT_TEXT_LAYOUT.date},user:{...DEFAULT_TEXT_LAYOUT.user}};
@@ -419,11 +424,14 @@ async function readCachedImage(key){
   });
   db.close();return data;
 }
+// Bumped whenever an image is set, so a slow restore never overwrites a newer choice.
+let bgImageVersion=0,centerImageVersion=0;
 async function restoreCachedImages(){
+  const bgV=bgImageVersion,centerV=centerImageVersion;
   try{
     const [bg,center]=await Promise.all([readCachedImage('background'),readCachedImage('center')]);
-    if(bg){$('background').src=bg;$('background').hidden=false;}
-    if(center){centerImageData=center;$('centerLogo').src=center;updateOverlayText();}
+    if(bg&&bgImageVersion===bgV){$('background').src=bg;$('background').hidden=false;}
+    if(center&&centerImageVersion===centerV){centerImageData=center;$('centerLogo').src=center;updateOverlayText();}
   }catch(e){console.warn('Could not restore cached images',e);}
 }
 function updateOverlayText(){
@@ -455,14 +463,19 @@ function exportSettings(){
   const settings={version:2,usernameCode:activeUsername,displayName:overlaySettings.name,overlaySettings:{...overlaySettings},qrLayout:{...layout},textLayout:JSON.parse(JSON.stringify(textLayout)),centerImageData:centerImageData||null};
   const blob=new Blob([JSON.stringify(settings,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='parrot-qr-settings.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
-function applySettings(settings){
+function applySettings(settings,opts={}){
   if(settings.usernameCode!=null){activeUsername=String(settings.usernameCode);$('usernameCode').value=activeUsername;}
   if(settings.overlaySettings)overlaySettings={...overlaySettings,...settings.overlaySettings};
   else if(settings.displayName!=null)overlaySettings.name=String(settings.displayName);
   if(settings.qrLayout)layout={...layout,...settings.qrLayout};
   if(settings.textLayout)textLayout={name:{...textLayout.name,...settings.textLayout.name},date:{...textLayout.date,...settings.textLayout.date},user:{...textLayout.user,...settings.textLayout.user}};
-  if(settings.centerImageData){centerImageData=settings.centerImageData;$('centerLogo').src=centerImageData;}
-  updateTimestamp();updateOverlayText();applyLayout();
+  if(settings.centerImageData){
+    centerImageData=settings.centerImageData;$('centerLogo').src=centerImageData;centerImageVersion++;
+    // Imported settings: also store the image so it survives a reload.
+    if(opts.cacheImages)cacheImage('center',centerImageData).catch(e=>console.warn('Could not cache imported center image',e));
+  }
+  // Settings never regenerate the QR pattern; they only re-render it (and not at all before startup finishes).
+  rerenderQR();updateOverlayText();applyLayout();
 }
 updateOverlayText();
 $('displayName').addEventListener('input',()=>{overlaySettings.name=$('displayName').value;updateOverlayText();});
@@ -471,21 +484,26 @@ $('centerImageFile').addEventListener('change',e=>{
   const f=e.target.files&&e.target.files[0];if(!f)return;
   const r=new FileReader();
   r.onload=async()=>{
+    centerImageVersion++;
     centerImageData=String(r.result);$('centerLogo').src=centerImageData;updateOverlayText();
     try{await cacheImage('center',centerImageData);}catch(err){alert('Could not cache center image. Try a smaller image.');}
   };
   r.readAsDataURL(f);
+  e.target.value=''; // allow choosing the same file again later
 });
 $('exportSettings').addEventListener('click',exportSettings);
 $('importSettingsBtn').addEventListener('click',()=>$('importSettingsFile').click());
-$('importSettingsFile').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{applySettings(JSON.parse(String(r.result)));}catch(err){alert('Could not read settings JSON.');}};r.readAsText(f);});
-$('saveDefaults').addEventListener('click',()=>{try{localStorage.setItem('qrDefaults',JSON.stringify({version:2,usernameCode:activeUsername,overlaySettings,textLayout,qrLayout:layout,centerImageData:centerImageData||null}));localStorage.setItem('qrTextLayout',JSON.stringify(textLayout));localStorage.setItem('qrOverlaySettings',JSON.stringify(overlaySettings));localStorage.setItem('qrLayout',JSON.stringify(layout));$('saveDefaults').textContent='Defaults saved';setTimeout(()=>$('saveDefaults').textContent='Save current settings as defaults',1600);}catch(e){alert('Could not save defaults in this browser.');}});
+$('importSettingsFile').addEventListener('change',e=>{const f=e.target.files&&e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{applySettings(JSON.parse(String(r.result)),{cacheImages:true});}catch(err){alert('Could not read settings JSON.');}};r.readAsText(f);e.target.value='';});
+$('saveDefaults').addEventListener('click',()=>{try{const defs={version:2,usernameCode:activeUsername,overlaySettings,textLayout,qrLayout:layout,centerImageData:centerImageData||null};
+  // Large images can exceed localStorage; the image is already kept in IndexedDB, so save without it if needed.
+  try{localStorage.setItem('qrDefaults',JSON.stringify(defs));}catch(q){defs.centerImageData=null;localStorage.setItem('qrDefaults',JSON.stringify(defs));}localStorage.setItem('qrTextLayout',JSON.stringify(textLayout));localStorage.setItem('qrOverlaySettings',JSON.stringify(overlaySettings));localStorage.setItem('qrLayout',JSON.stringify(layout));$('saveDefaults').textContent='Defaults saved';setTimeout(()=>$('saveDefaults').textContent='Save current settings as defaults',1600);}catch(e){alert('Could not save defaults in this browser.');}});
 try{const d=JSON.parse(localStorage.getItem('qrDefaults'));if(d&&d.version===2)applySettings(d);else{const fresh={version:2,usernameCode:USERNAME_CODE,overlaySettings:{...overlaySettings},textLayout:JSON.parse(JSON.stringify(DEFAULT_TEXT_LAYOUT)),qrLayout:{...DEFAULT_LAYOUT},centerImageData:null};localStorage.setItem('qrDefaults',JSON.stringify(fresh));}}catch(e){}
 
 function render(){
   const text=$('content').value.replace(/\n+$/,'');
   try{
-    const mask=randomMask();
+    if(currentMask<0)currentMask=randomMask();
+    const mask=currentMask; // stable until the next refreshQR()
     const r=QR.encode(text,{minVersion:4,mask});
     const M=r.matrix,N=M.length,q=layout.pad,s=12,W=Math.round((N+2*q)*s);lastN=N;
     const c=document.createElement('canvas');c.width=c.height=W;
@@ -508,40 +526,46 @@ function currentTimestamp(){
   const d=new Date();
   return pad(d.getUTCMonth()+1)+pad(d.getUTCDate())+d.getUTCFullYear()+'-'+pad(d.getUTCHours())+pad(d.getUTCMinutes())+pad(d.getUTCSeconds());
 }
-function updateTimestamp(){
-  const ts=currentTimestamp();
-  $('content').value=activeUsername+QR_SUFFIX+ts;
-  render();
+function buildContent(){$('content').value=activeUsername+QR_SUFFIX+currentTs;}
+// The ONLY place a new timestamp + new pattern is made.
+function refreshQR(){
+  needsRefresh=false;refreshCount++;
+  currentTs=currentTimestamp();
+  currentMask=randomMask();
+  buildContent();render();
 }
-// Always generate a fresh timestamped QR when the page is opened or
-// when the user returns to it after switching tabs/apps or minimizing.
-let wasHidden=document.visibilityState==='hidden';
-document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='hidden'){
-    wasHidden=true;
-  }else if(wasHidden){
-    wasHidden=false;
-    updateTimestamp();
-  }
-});
-window.addEventListener('pageshow',()=>updateTimestamp());
-// visibilitychange/pageshow handle returning to the page; avoid refreshing
-// again on focus because browsers often fire both events for the same return.
+// Re-draw with the same timestamp and pattern (username/settings/border changes).
+function rerenderQR(){if(!booted)return;buildContent();render();}
+// Kept for compatibility: the "Update time now" button.
+function updateTimestamp(){refreshQR();}
 
-// Create a fresh QR immediately on initial page load.
-updateTimestamp();
-$('now').onclick=updateTimestamp;
+// ===== Refresh on return =====
+// Leaving the page (tab switch, app switch, minimize, closing to bfcache, window blur)
+// only marks a refresh as needed. Coming back performs it once; the flag is cleared
+// by refreshQR(), so pageshow + visibilitychange + focus can't double-refresh.
+let needsRefresh=false;
+function markLeft(){if(booted)needsRefresh=true;}
+function handleReturn(){if(needsRefresh&&document.visibilityState!=='hidden')refreshQR();}
+document.addEventListener('visibilitychange',()=>{document.visibilityState==='hidden'?markLeft():handleReturn();});
+window.addEventListener('pagehide',markLeft);
+window.addEventListener('pageshow',e=>{if(e.persisted)markLeft();handleReturn();}); // initial load: persisted=false → no-op
+window.addEventListener('blur',markLeft);
+window.addEventListener('focus',handleReturn);
+
+$('now').onclick=refreshQR;
 $('backgroundFile').addEventListener('change',e=>{
   const file=e.target.files && e.target.files[0]; if(!file) return;
   const r=new FileReader();
   r.onload=async()=>{
+    bgImageVersion++;
     const data=String(r.result);$('background').src=data;$('background').hidden=false;
     try{await cacheImage('background',data);}catch(err){alert('Could not cache background image. Try a smaller image.');}
   };
   r.readAsDataURL(file);
+  e.target.value=''; // allow choosing the same file again later
 });
 $('usernameCode').value=activeUsername;
-$('usernameCode').addEventListener('input',()=>{activeUsername=$('usernameCode').value.trim()||'USERNAME';updateTimestamp();updateOverlayText();});
+$('usernameCode').addEventListener('input',()=>{activeUsername=$('usernameCode').value.trim()||'USERNAME';rerenderQR();updateOverlayText();});
 $('copy').onclick=async()=>{
   const b=$('copy');
   try{await navigator.clipboard.writeText($('content').value);b.textContent='Copied';}
@@ -549,8 +573,9 @@ $('copy').onclick=async()=>{
   setTimeout(()=>b.textContent='Copy content',1500);
 };
 $('content').addEventListener('input',render);
-$('content').value = ORIG + currentTimestamp();
-updateTimestamp();
+// Startup: settings are already applied above (without rendering); make exactly one fresh QR now.
+booted=true;
+refreshQR();
 updateOverlayText();
 // Do not run updateTimestamp on an interval: the QR should stay stable
 // while this page is active and refresh only on initial load/return.
