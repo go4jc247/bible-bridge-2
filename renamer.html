@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KJV Audio Bible Renamer</title>
+<style>
+  body{font-family:-apple-system,system-ui,sans-serif;max-width:640px;margin:0 auto;padding:16px;line-height:1.45;color:#222;background:#fafafa}
+  h1{font-size:1.4em;margin:.2em 0 .4em}
+  .card{background:#fff;border:1px solid #ddd;border-radius:12px;padding:14px;margin:12px 0}
+  label{display:block;margin:8px 0}
+  button,.dl{display:inline-block;font-size:1em;padding:10px 16px;border-radius:10px;border:0;background:#2a5bd7;color:#fff;text-decoration:none;margin:4px 4px 4px 0}
+  button:disabled{background:#aaa}
+  .dl{background:#1f8a4c}
+  .dl.done{background:#777}
+  select,input[type=file]{font-size:1em;max-width:100%}
+  #status{white-space:pre-wrap;font-size:.95em}
+  .warn{color:#b00020}
+  .ok{color:#1f8a4c}
+  pre{font-size:.8em;max-height:320px;overflow:auto;background:#f3f3f3;padding:8px;border-radius:8px}
+  progress{width:100%;height:14px}
+  small{color:#666}
+</style>
+</head>
+<body>
+<h1>KJV Audio Bible Renamer</h1>
+<p>Renames <b>001.mp3 – 1191.mp3</b> (Max McLean KJV) to names like <b>40_Matthew001.mp3</b>.
+Nothing is uploaded. Everything runs on this device.</p>
+
+<div class="card">
+  <b>1. Pick the MP3 files</b><br>
+  <small>In the picker, open the folder, tap <i>Select</i>, then <i>Select All</i>.</small><br><br>
+  <input type="file" id="pick" multiple accept=".mp3,audio/mpeg">
+  <div id="status"></div>
+</div>
+
+<div class="card">
+  <b>2. Options</b>
+  <label><input type="checkbox" id="extras" checked> Rename the intro to <code>00_Introduction.mp3</code> and the closing to <code>67_Closing.mp3</code></label>
+  <label>Download as:
+    <select id="split">
+      <option value="2" selected>2 zips: Old Testament and New Testament</option>
+      <option value="1">1 zip (about 3.4 GB, may fail on iPhone)</option>
+      <option value="0">66 zips, one per book (safest)</option>
+    </select>
+  </label>
+  <button id="build" disabled>Make renamed zip(s)</button>
+  <progress id="prog" value="0" max="1" hidden></progress>
+  <div id="buildMsg"></div>
+</div>
+
+<div class="card" id="linksCard" hidden>
+  <b>3. Download</b><br>
+  <small>Tap each button. On iPhone, choose <i>Download</i>, then open the Files app → Downloads and tap each zip to unzip it.</small>
+  <div id="links"></div>
+</div>
+
+<details class="card"><summary>Preview the renames</summary><pre id="preview">Pick files first.</pre></details>
+
+<script>
+const BOOKS=[["Genesis",50],["Exodus",40],["Leviticus",27],["Numbers",36],["Deuteronomy",34],["Joshua",24],["Judges",21],["Ruth",4],["1Samuel",31],["2Samuel",24],["1Kings",22],["2Kings",25],["1Chronicles",29],["2Chronicles",36],["Ezra",10],["Nehemiah",13],["Esther",10],["Job",42],["Psalms",150],["Proverbs",31],["Ecclesiastes",12],["SongofSolomon",8],["Isaiah",66],["Jeremiah",52],["Lamentations",5],["Ezekiel",48],["Daniel",12],["Hosea",14],["Joel",3],["Amos",9],["Obadiah",1],["Jonah",4],["Micah",7],["Nahum",3],["Habakkuk",3],["Zephaniah",3],["Haggai",2],["Zechariah",14],["Malachi",4],["Matthew",28],["Mark",16],["Luke",24],["John",21],["Acts",28],["Romans",16],["1Corinthians",16],["2Corinthians",13],["Galatians",6],["Ephesians",6],["Philippians",4],["Colossians",4],["1Thessalonians",5],["2Thessalonians",3],["1Timothy",6],["2Timothy",4],["Titus",3],["Philemon",1],["Hebrews",13],["James",5],["1Peter",5],["2Peter",3],["1John",5],["2John",1],["3John",1],["Jude",1],["Revelation",22]];
+
+// chapter list: index 0 = file 002
+const CHAPTERS=[];
+BOOKS.forEach(([b,n],i)=>{for(let c=1;c<=n;c++)CHAPTERS.push({book:i+1,name:`${String(i+1).padStart(2,"0")}_${b}${String(c).padStart(3,"0")}.mp3`});});
+const TOTAL=1+CHAPTERS.length+1; // intro + 1189 + closing = 1191
+
+const $=id=>document.getElementById(id);
+let entries=[];
+
+function mapNumber(n,extras){
+  if(n===1) return {book:1,name:extras?"00_Introduction.mp3":"001.mp3"};
+  if(n>=2&&n<=CHAPTERS.length+1) return CHAPTERS[n-2];
+  if(n===TOTAL) return {book:66,name:extras?"67_Closing.mp3":"1191.mp3"};
+  return null;
+}
+
+function refresh(){
+  const extras=$("extras").checked;
+  const files=[...$("pick").files];
+  entries=[];const skipped=[];const seen=new Set();
+  for(const f of files){
+    const m=f.name.match(/^(\d+)\.mp3$/i);
+    const t=m&&mapNumber(parseInt(m[1],10),extras);
+    if(!t){skipped.push(f.name);continue;}
+    seen.add(parseInt(m[1],10));
+    entries.push({file:f,n:parseInt(m[1],10),...t});
+  }
+  entries.sort((a,b)=>a.n-b.n);
+  const missing=[];for(let i=1;i<=TOTAL;i++)if(!seen.has(i))missing.push(i);
+  const gb=(entries.reduce((s,e)=>s+e.file.size,0)/1e9).toFixed(2);
+  let msg=`${entries.length} of ${TOTAL} files recognized (${gb} GB).`;
+  let cls="ok";
+  if(missing.length){cls="warn";msg+=`\nMissing: ${missing.slice(0,25).join(", ")}${missing.length>25?" …":""}`;}
+  if(skipped.length){cls="warn";msg+=`\nIgnored (name not like 123.mp3): ${skipped.slice(0,10).join(", ")}${skipped.length>10?" …":""}`;}
+  if(!files.length){msg="";}
+  $("status").className=cls;$("status").textContent=msg;
+  $("build").disabled=!entries.length;
+  $("preview").textContent=entries.length?entries.map(e=>`${e.file.name} → ${e.name}`).join("\n"):"Pick files first.";
+}
+$("pick").addEventListener("change",refresh);
+$("extras").addEventListener("change",refresh);
+
+// ---- CRC32 ----
+const CRC_T=new Uint32Array(256);
+for(let i=0;i<256;i++){let c=i;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;CRC_T[i]=c>>>0;}
+function crc32(u8){let c=0xFFFFFFFF;for(let i=0;i<u8.length;i++)c=CRC_T[(c^u8[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+
+// ---- ZIP (stored, no compression) ----
+function dosTime(d){return ((d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()>>1))&0xFFFF;}
+function dosDate(d){return (((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate())&0xFFFF;}
+
+async function makeZip(list,onFile){
+  const enc=new TextEncoder();const now=new Date();const T=dosTime(now),D=dosDate(now);
+  const parts=[];const central=[];let offset=0;
+  for(const e of list){
+    const name=enc.encode(e.name);const size=e.file.size;
+    const crc=crc32(new Uint8Array(await e.file.arrayBuffer()));
+    const lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint16(6,0x0800,true);lh.setUint16(8,0,true);
+    lh.setUint16(10,T,true);lh.setUint16(12,D,true);lh.setUint32(14,crc,true);lh.setUint32(18,size,true);lh.setUint32(22,size,true);
+    lh.setUint16(26,name.length,true);lh.setUint16(28,0,true);
+    parts.push(lh.buffer,name,e.file);
+    const ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true);ch.setUint16(4,20,true);ch.setUint16(6,20,true);ch.setUint16(8,0x0800,true);ch.setUint16(10,0,true);
+    ch.setUint16(12,T,true);ch.setUint16(14,D,true);ch.setUint32(16,crc,true);ch.setUint32(20,size,true);ch.setUint32(24,size,true);
+    ch.setUint16(28,name.length,true);ch.setUint32(42,offset,true);
+    central.push(ch.buffer,name);
+    offset+=30+name.length+size;
+    onFile();
+  }
+  let cdSize=0;for(const c of central)cdSize+=c.byteLength;
+  const end=new DataView(new ArrayBuffer(22));
+  end.setUint32(0,0x06054b50,true);end.setUint16(8,list.length,true);end.setUint16(10,list.length,true);
+  end.setUint32(12,cdSize,true);end.setUint32(16,offset,true);
+  return new Blob([...parts,...central,end.buffer],{type:"application/zip"});
+}
+
+function groupEntries(mode){
+  if(mode===1) return [["KJV_Bible",entries]];
+  if(mode===2){
+    const ot=entries.filter(e=>e.book<=39),nt=entries.filter(e=>e.book>=40);
+    return [["KJV_Old_Testament",ot],["KJV_New_Testament",nt]].filter(g=>g[1].length);
+  }
+  const g=new Map();
+  for(const e of entries){if(!g.has(e.book))g.set(e.book,[]);g.get(e.book).push(e);}
+  return [...g.entries()].map(([b,l])=>[`${String(b).padStart(2,"0")}_${BOOKS[b-1][0]}`,l]);
+}
+
+$("build").addEventListener("click",async()=>{
+  const mode=parseInt($("split").value,10);
+  const groups=groupEntries(mode);
+  const total=groups.reduce((s,g)=>s+g[1].reduce((t,e)=>t+e.file.size,0),0);
+  if(mode===1&&total>4.0e9){alert("Too big for one zip. Please choose 2 zips or one per book.");return;}
+  $("build").disabled=true;$("prog").hidden=false;$("prog").max=entries.length;$("prog").value=0;
+  $("links").innerHTML="";$("linksCard").hidden=false;
+  let done=0;
+  try{
+    for(const [label,list] of groups){
+      $("buildMsg").textContent=`Preparing ${label}…`;
+      const blob=await makeZip(list,()=>{done++;$("prog").value=done;});
+      const a=document.createElement("a");
+      a.className="dl";a.href=URL.createObjectURL(blob);a.download=label+".zip";
+      a.textContent=`${label}.zip (${(blob.size/1e6).toFixed(0)} MB)`;
+      a.addEventListener("click",()=>a.classList.add("done"));
+      $("links").appendChild(a);
+    }
+    $("buildMsg").innerHTML='<span class="ok">Done. Tap the green buttons below to download.</span>';
+  }catch(err){
+    $("buildMsg").innerHTML=`<span class="warn">Error: ${err.message}. Try "66 zips, one per book".</span>`;
+  }
+  $("build").disabled=false;
+});
+</script>
+</body>
+</html>
