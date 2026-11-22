@@ -1219,6 +1219,17 @@ VN["app-ylt"]=["Young\u2019s Literal Translation (YLT)","In-app reader",1];
 VN["app-rst"]=["\u0421\u0438\u043d\u043e\u0434\u0430\u043b\u044c\u043d\u044b\u0439 \u043f\u0435\u0440\u0435\u0432\u043e\u0434 (RST)","In-app reader",1];
 VN["app-rv1909"]=["Reina-Valera 1909 (RV1909)","In-app reader",1];
 VERSIONS.forEach(function(v){if(v.bgn)VN[v.id]=[v.bgn,"BibleGateway",v.bgl]});
+/* versions you added from a file. reader.js keeps the list in localStorage ("bb-custom") and the text in this device's own
+   storage; none of it is part of the app or the repository. */
+function syncCustom(){
+  for(var i=VERSIONS.length-1;i>=0;i--)if(VERSIONS[i].custom)VERSIONS.splice(i,1);
+  var a=[];try{a=JSON.parse(localStorage.getItem("bb-custom")||"[]")}catch(e){}
+  (Array.isArray(a)?a:[]).forEach(function(c){
+    VERSIONS.push({id:"app-"+c.id,lang:c.lang,label:c.short+" \u00b7 In-app reader",app:c.id,noaudio:c.audio?0:1,custom:1});
+    VN["app-"+c.id]=[c.name+" ("+c.short+")","In-app reader \u00b7 on this device",1];
+  });
+}
+syncCustom();
 
 /* ---------- bible.com (YouVersion) links ----------
    Bible Bridge only links out. No Bible text or audio is stored here.
@@ -1711,7 +1722,7 @@ function dlScanSoon(ms){setTimeout(function(){
 },ms)}
 function dlCount(n){return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,",")}
 function openDownloads(v,view){
-  var dl=window.BBReader&&BBReader.dl,id=v.app,tok="dl"+Date.now(),st=null,sel={},open={},mode=view||{k:"main"},manual=(id==="kjv"),imp=null;
+  var dl=window.BBReader&&BBReader.dl,id=v.app,tok="dl"+Date.now(),st=null,sel={},open={},mode=view||{k:"main"},isC=!!v.custom,manual=(id==="kjv"||isC),imp=null;
   function mine(){var b=$("sheetBox");return $("overlay").classList.contains("show")&&b.getAttribute("data-dl")===tok}
   function onJob(){if(!mine()){dl.off(onJob);return}refresh()}
   function refresh(){dl.status(id).then(function(x){st=x;try{dlRecSet(id,{text:x.text.done})}catch(e){}paint()},function(){st=null;paint(true)})}
@@ -1742,8 +1753,12 @@ function openDownloads(v,view){
       box.appendChild(h("p",{class:"note err",text:msg}));
     }
     var row=h("div",{class:"dlrow"});
+    if(k==="text"&&isC){
+      row.appendChild(h("button",{class:"btn sm ghost",type:"button",onclick:function(){mode={k:"rm",kind:"text"};paint()}},["Remove this version"]));
+      box.appendChild(row);return box;
+    }
     if(k==="audio"&&manual){
-      box.appendChild(h("p",{class:"note",text:"This audio can't be downloaded by the app itself. You save it from AudioTreasure's site, then add it here."}));
+      box.appendChild(h("p",{class:"note",text:isC?"Audio for this version comes from your own files. Add them here and they stay on this device.":"This audio can't be downloaded by the app itself. You save it from AudioTreasure's site, then add it here."}));
       row.appendChild(h("button",{class:"btn sm",type:"button",onclick:function(){mode={k:"import"};imp=null;paint()}},["Add audio from my device\u2026"]));
       if(d.done>0)row.appendChild(h("button",{class:"btn sm ghost",type:"button",onclick:function(){mode={k:"rm",kind:k};paint()}},["Remove"]));
       box.appendChild(row);return box;
@@ -1794,6 +1809,8 @@ function openDownloads(v,view){
           h("button",{class:"btn ghost",type:"button",onclick:function(){imp=null;paint()}},["Add more"])]));
         return;
       }
+      if(isC)b.appendChild(h("p",{class:"muted",text:"Pick a zip of MP3 files, or the MP3 files themselves. Each file should be named with the book and chapter, like 01_Genesis001.mp3 or John003.mp3, so the app can tell which chapter it is."}));
+      else{
       b.appendChild(h("p",{class:"muted",text:"AudioTreasure lets you download its King James audio for your own use, but it doesn't allow other apps to download it for you. So it takes two steps:"}));
       b.appendChild(h("p",{class:"muted",text:"1. Download the audio. A zip is easiest: tap one below and your phone saves it to Files."}));
       b.appendChild(h("div",{style:"display:grid;gap:8px;margin:6px 0 12px"},[
@@ -1801,13 +1818,14 @@ function openDownloads(v,view){
         h("a",{class:"btn ghost",href:AT+"KJV_OT_Audio_TB.zip",target:"_blank",rel:"noopener"},["Old Testament (878 MB)"]),
         h("a",{class:"btn ghost",href:AT,target:"_blank",rel:"noopener"},["One book at a time\u2026"])]));
       b.appendChild(h("p",{class:"muted",text:"2. Come back here and add it. Pick the zip, or the MP3 files if your phone already unpacked it. The app works out which chapter each file is."}));
+      }
       var fi=h("input",{type:"file",multiple:"",accept:".zip,.mp3,audio/mpeg,application/zip",style:"display:none"});
       fi.onchange=function(){
         var fs=fi.files;if(!fs||!fs.length)return;
         imp={running:true,done:0,total:0,at:""};paint();
         function fail(e){imp={res:{saved:0,skipped:0,unmatched:[],failed:0,error:_f("Something went wrong: {0}. Close the app completely and reopen it, then try again.",[_((e&&e.message)||String(e))])}};if(mine())paint()}
         if(typeof dl.importAudio!=="function"){fail(new Error("this version of the app is missing the audio import"));return}
-        try{dl.importAudio(id,fs,function(n,t,at){imp.done=n;imp.total=t;imp.at=at;if(mine()&&mode.k==="import")paint()}).then(function(r){imp={res:r};if(mine())paint()},fail)}catch(e){fail(e)}
+        try{dl.importAudio(id,fs,function(n,t,at){imp.done=n;imp.total=t;imp.at=at;if(mine()&&mode.k==="import")paint()}).then(function(r){imp={res:r};if(isC)syncCustom();if(mine())paint()},fail)}catch(e){fail(e)}
       };
       b.appendChild(fi);
       b.appendChild(h("div",{style:"display:grid;gap:8px"},[
@@ -1816,9 +1834,9 @@ function openDownloads(v,view){
       return;
     }
     if(mode.k==="rm"){
-      b.appendChild(h("p",{class:"muted",text:_(mode.kind==="text"?"Remove the downloaded text for this translation from this device? You can download it again later.":"Remove the downloaded audio for this translation from this device? You can download it again later.")}));
+      b.appendChild(h("p",{class:"muted",text:isC&&mode.kind==="text"?"Remove this version, with its audio, from this device? You would need to add the file again to read it.":_(mode.kind==="text"?"Remove the downloaded text for this translation from this device? You can download it again later.":"Remove the downloaded audio for this translation from this device? You can download it again later.")}));
       b.appendChild(h("div",{style:"display:grid;gap:8px;margin-top:12px"},[
-        h("button",{class:"btn danger",type:"button",onclick:function(){var k=mode.kind;mode={k:"main"};dl.remove(id,k).then(refresh)}},["Remove"]),
+        h("button",{class:"btn danger",type:"button",onclick:function(){var k=mode.kind;mode={k:"main"};dl.remove(id,k).then(function(){if(isC){syncCustom();if(k==="text"){closeSheet();refreshAll();return}}refresh()})}},["Remove"]),
         h("button",{class:"btn ghost",type:"button",onclick:function(){mode={k:"main"};paint()}},["Cancel"])]));
       return;
     }
@@ -1887,6 +1905,44 @@ function versionRow(v,after){
   }
   return wrap;
 }
+function addVersionRow(box){
+  box.appendChild(h("button",{class:"btn ghost",type:"button",style:"margin-top:14px",onclick:openAddVersion},["Add a version from a file\u2026"]));
+}
+function openAddVersion(){
+  openSheet(function(box){
+    box.appendChild(sheetHead("Add a Bible version"));
+    box.appendChild(h("p",{class:"muted",text:"Pick a Bible text file (.bbt). It is kept on this device only. It isn\u2019t uploaded and it isn\u2019t part of the app."}));
+    var fi=h("input",{type:"file"});
+    var nm=h("input",{type:"text",placeholder:"e.g. English Standard Version",autocomplete:"off"});
+    var ab=h("input",{type:"text",placeholder:"e.g. ESV",maxlength:"8",autocapitalize:"characters",autocomplete:"off"});
+    var lg=h("select",{"aria-label":"Language"},[h("option",{value:"en",text:"English"}),h("option",{value:"ru",text:"\u0420\u0443\u0441\u0441\u043a\u0438\u0439"}),h("option",{value:"es",text:"Espa\u00f1ol"})]);
+    var err=h("div",{class:"err",hidden:""});
+    fi.onchange=function(){
+      var f=fi.files&&fi.files[0];if(!f)return;
+      var m=/(?:^|[-_ ])([A-Za-z0-9]{2,8})\.bbt$/i.exec(f.name);
+      if(m&&!ab.value)ab.value=m[1].toUpperCase();
+    };
+    box.appendChild(h("div",{class:"field"},[h("label",{text:"Text file"}),fi]));
+    box.appendChild(h("div",{class:"field"},[h("label",{text:"Name"}),nm]));
+    box.appendChild(h("div",{class:"field"},[h("label",{text:"Short name"}),ab]));
+    box.appendChild(h("div",{class:"field"},[h("label",{text:"Language"}),lg]));
+    box.appendChild(err);
+    var go=h("button",{class:"btn",type:"button",style:"margin-top:8px"},["Add version"]);
+    go.onclick=function(){
+      var f=fi.files&&fi.files[0];
+      if(!f){err.hidden=false;err.textContent="Choose the .bbt file first.";return}
+      if(!(window.BBReader&&BBReader.addVersion)){err.hidden=false;err.textContent="The reader isn\u2019t ready yet. Close this and try again.";return}
+      err.hidden=true;go.disabled=true;go.textContent="Adding\u2026";
+      BBReader.addVersion(f,{name:nm.value,short:ab.value,lang:lg.value}).then(function(r){
+        syncCustom();vOpen[r.lang]=true;closeSheet();refreshAll();
+        toast(r.short+" added. Tap its download icon to add audio.");
+        openVersions();
+      },function(e){go.disabled=false;go.textContent="Add version";err.hidden=false;err.textContent=(e&&e.message)||"Couldn\u2019t add that file."});
+    };
+    box.appendChild(go);
+    box.appendChild(h("button",{class:"btn ghost",type:"button",style:"margin-top:8px",onclick:closeSheet},["Cancel"]));
+  });
+}
 function versionsSorted(all){return all.filter(function(v){return v.app}).concat(all.filter(function(v){return !v.app}))}
 function openVersions(){
   openSheet(function(box){
@@ -1913,6 +1969,7 @@ function openVersions(){
         box.appendChild(h("div",{class:"lgroup"},[head,body]));
       });
       yvCopyRow(box);
+      addVersionRow(box);
       dlScanSoon(800);
       return;
     }
@@ -1922,6 +1979,7 @@ function openVersions(){
     if(cv&&cv.more&&cv.lang===state.prefs.lang)all=all.concat([cv]);
     versionsSorted(all).forEach(function(v){box.appendChild(versionRow(v))});
     yvCopyRow(box);
+    addVersionRow(box);
     dlScanSoon(800);
   });
 }

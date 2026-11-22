@@ -26,6 +26,36 @@
   };
   var ORDER = ["kjv", "rst", "web", "bsb", "asv", "darby", "webster", "ylt", "rv1909"];
 
+  /* ---------- versions you add yourself ----------
+     The text file you pick is kept in this device's own storage (IndexedDB) and the list of them in localStorage.
+     Nothing is uploaded and nothing is written into the app's files, so a copyrighted text stays on your device only. */
+  var CUSTOM_KEY = "bb-custom";
+  function readCustoms() { try { var a = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+  function writeCustoms(a) { try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(a)); } catch (e) {} }
+  function addCustomTr(c) {
+    TR[c.id] = { id: c.id, short: c.short, name: c.name, lang: c.lang, ps: c.lang === "ru" ? "ru" : "en", audio: c.audio ? "c:" + c.id : null, custom: true };
+    if (ORDER.indexOf(c.id) < 0) ORDER.push(c.id);
+  }
+  function setCustomAudio(id, on) {
+    var a = readCustoms();
+    a.forEach(function (c) { if (c.id === id) c.audio = on ? 1 : 0; });
+    writeCustoms(a);
+    if (TR[id]) TR[id].audio = on ? "c:" + id : null;
+  }
+  readCustoms().forEach(addCustomTr);
+  function idbDo(mode, fn) {
+    return new Promise(function (res, rej) {
+      var q = indexedDB.open("bbcustom", 1);
+      q.onupgradeneeded = function () { q.result.createObjectStore("t"); };
+      q.onerror = function () { rej(q.error); };
+      q.onsuccess = function () {
+        var db = q.result, tx = db.transaction("t", mode), r = fn(tx.objectStore("t"));
+        tx.oncomplete = function () { var v = r && r.result; db.close(); res(v); };
+        tx.onerror = tx.onabort = function () { var e = tx.error; db.close(); rej(e || new Error("storage")); };
+      };
+    });
+  }
+
   var NAMES = {
     en: ["Genesis","Exodus","Leviticus","Numbers","Deuteronomy","Joshua","Judges","Ruth","1 Samuel","2 Samuel",
       "1 Kings","2 Kings","1 Chronicles","2 Chronicles","Ezra","Nehemiah","Esther","Job","Psalms","Proverbs",
@@ -183,6 +213,18 @@
   }
   function getIndex(id) {
     if (idxP[id]) return idxP[id];
+    if (TR[id] && TR[id].custom) {                      // a version you added: the whole file is in this device's storage
+      var pc = idbDo("readonly", function (st) { return st.get(id); }).then(function (buf) {
+        if (!buf) throw new Error("missing");
+        whole[id] = buf;
+        var ix = parseIndex(buf, id);
+        Ds[id] = ix.len.map(function (row) { return new Array(row.length); });
+        return ix;
+      });
+      pc.catch(function () { delete idxP[id]; });
+      idxP[id] = pc;
+      return pc;
+    }
     var key = fileUrl(id) + "?idx";
     var p = cacheGet(key).then(function (hit) {
       if (hit) return hit;
@@ -266,8 +308,16 @@
   function cacheStrict(name, key, body) {            // like cachePut, but says if it did not fit
     return caches.open(name).then(function (c) { return c.put(new Request(key), body); });
   }
+  function audioBase(t) {                            // the start of every audio address that belongs to this translation
+    if (t.custom) return new URL("bbcustom/" + t.id + "/", location.href).href;
+    return t.audio === "rst" ? DBS_BASE : KJV_BASE;
+  }
   function haveText(id) {
     var out = {};
+    if (TR[id] && TR[id].custom) {                      // your own file always holds every chapter
+      for (var cb = 0; cb < CH_COUNT.length; cb++) for (var cc = 1; cc <= CH_COUNT[cb]; cc++) out[cb + "." + cc] = true;
+      return Promise.resolve(out);
+    }
     if (!window.caches) return Promise.resolve(out);
     var re = new RegExp("bible/" + id + "\\.bbt\\?c=(\\d+)\\.(\\d+)$");
     return caches.open(CACHE_NAME).then(function (c) { return c.keys(); }).then(function (ks) {
@@ -277,17 +327,17 @@
   }
   function haveAudio(t) {
     var out = {};
-    if (!window.caches || !t.audio) return Promise.resolve(out);
+    if (!window.caches || !(t.audio || t.custom)) return Promise.resolve(out);
     return loadAudioHave().then(function () { return audioHave; });
   }
   // how much is saved, without needing the book index (for the little icons in the version list)
   function dlQuick(id) {
     var t = TR[id];
-    return Promise.all([haveText(id), t && t.audio ? haveAudio(t) : Promise.resolve(null)]).then(function (r) {
+    return Promise.all([haveText(id), t && (t.audio || t.custom) ? haveAudio(t) : Promise.resolve(null)]).then(function (r) {
       var tx = Object.keys(r[0]).length, au = null;
       if (r[1]) {
         var n = 0;
-        for (var u in r[1]) if (u.indexOf(t.audio === "rst" ? DBS_BASE : KJV_BASE) === 0) n++;
+        for (var u in r[1]) if (u.indexOf(audioBase(t)) === 0) n++;
         au = n;
       }
       return { text: tx, audio: au, total: CH_TOTAL };
@@ -297,7 +347,7 @@
   function dlStatus(id) {
     var t = TR[id];
     return getIndex(id).then(function (ix) {
-      return Promise.all([haveText(id), t.audio ? haveAudio(t) : Promise.resolve(null)]).then(function (r) {
+      return Promise.all([haveText(id), t.audio || t.custom ? haveAudio(t) : Promise.resolve(null)]).then(function (r) {
         function build(isHave) {
           var books = [], done = 0, total = 0;
           for (var b = 0; b < ix.len.length; b++) {
@@ -395,6 +445,7 @@
     return getIndex(id).then(function (ix) { j.paused = false; j.running = true; j.error = ""; dlEmit(); runJob(j, ix); });
   }
   function dlRemove(id, kind) {
+    if (TR[id] && TR[id].custom && kind === "text") return removeVersion(id);
     var key = id + "|" + kind, j = dlJobs[key];
     if (j) { j.paused = true; j.running = false; delete dlJobs[key]; }
     if (!window.caches) return Promise.resolve();
@@ -404,10 +455,10 @@
         return c.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return re.test(k.url); }).map(function (k) { return c.delete(k); })); });
       }).then(function () { dlEmit(); });
     }
-    var t = TR[id], base = t.audio === "rst" ? DBS_BASE : KJV_BASE;
+    var t = TR[id], base = audioBase(t);
     return caches.open(AUDIO_CACHE).then(function (c) {
       return c.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return k.url.indexOf(base) === 0; }).map(function (k) { delete audioHave[k.url]; return c.delete(k); })); });
-    }).then(function () { dlEmit(); });
+    }).then(function () { if (t.custom) setCustomAudio(id, false); dlEmit(); });
   }
 
   /* ---------- audio you saved yourself: pick the files (or a zip of them) and keep every chapter on this device ---------- */
@@ -478,7 +529,7 @@
   }
   function importAudio(id, files, onProg) {
     var t = TR[id], res = { saved: 0, skipped: 0, unmatched: [], failed: 0, error: "" };
-    if (!t || !t.audio || t.audio === "rst") return Promise.resolve(res);
+    if (!t || (!t.audio && !t.custom) || t.audio === "rst") return Promise.resolve(res);
     if (!window.caches) { res.error = "nocache"; return Promise.resolve(res); }
     files = Array.prototype.slice.call(files || []);
     var ix = { len: CH_COUNT.map(function (n) { return new Array(n); }) };
@@ -516,7 +567,54 @@
           });
         }, Promise.resolve()).then(function () { if (onProg) onProg(jobs.length, jobs.length, ""); });
       });
-    }).catch(function (e) { if (!res.error) res.error = (e && e.message) || "error"; }).then(function () { dlEmit(); return res; });
+    }).catch(function (e) { if (!res.error) res.error = (e && e.message) || "error"; }).then(function () {
+      if (res.saved && t.custom && !t.audio) setCustomAudio(id, true);   // the version now has a recording, so the player can show
+      dlEmit(); return res;
+    });
+  }
+
+  /* ---------- adding and removing your own versions ---------- */
+  function addVersion(file, meta) {
+    meta = meta || {};
+    if (!window.indexedDB) return Promise.reject(new Error("This browser can't keep a Bible file on the device."));
+    return readSlice(file, 0, file.size).then(function (buf) {
+      var L = parseInt(new TextDecoder("ascii").decode(buf.slice(0, 10)), 10), j = null, i, k, tot = 0;
+      try { j = JSON.parse(new TextDecoder("utf-8").decode(buf.slice(10, 10 + L))); } catch (e) {}
+      if (!(L > 0) || !j || !Array.isArray(j.b) || j.b.length !== 66) throw new Error("This isn't a Bible Bridge text file (.bbt) for a whole Bible.");
+      for (i = 0; i < 66; i++) {
+        if (!Array.isArray(j.b[i]) || j.b[i].length !== CH_COUNT[i]) throw new Error("The books and chapters in this file don't match a standard Bible.");
+        for (k = 0; k < j.b[i].length; k++) tot += j.b[i][k];
+      }
+      if (tot !== buf.byteLength - 10 - L) throw new Error("This file looks cut off or damaged. Try copying it to your phone again.");
+      var base = String(meta.id || j.id || "mine").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12) || "mine";
+      var id = TR[base] && !TR[base].custom ? "my" + base : base;
+      var short = String(meta.short || j.id || id).toUpperCase().replace(/\s+/g, "").slice(0, 8) || id.toUpperCase();
+      var c = { id: id, short: short, name: String(meta.name || "").trim() || short, lang: /^(en|ru|es)$/.test(meta.lang) ? meta.lang : "en",
+        audio: TR[id] && TR[id].custom && TR[id].audio ? 1 : 0 };
+      return idbDo("readwrite", function (st) { return st.put(buf, id); }).then(function () {
+        delete idxP[id]; delete whole[id]; delete Ds[id];
+        var a = readCustoms().filter(function (x) { return x.id !== id; });
+        a.push(c); writeCustoms(a); addCustomTr(c);
+        try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}   // ask the device not to clear it
+        return { id: id, short: c.short, name: c.name, lang: c.lang };
+      });
+    });
+  }
+  function removeVersion(id) {
+    var t = TR[id];
+    if (!t || !t.custom) return Promise.resolve();
+    if (isOpen && tr === t) close(false);
+    var done = function () {
+      delete TR[id]; var i = ORDER.indexOf(id); if (i >= 0) ORDER.splice(i, 1);
+      delete idxP[id]; delete whole[id]; delete Ds[id];
+      writeCustoms(readCustoms().filter(function (x) { return x.id !== id; }));
+      dlEmit();
+    };
+    var base = audioBase(t);
+    var rmAudio = window.caches ? caches.open(AUDIO_CACHE).then(function (c) {
+      return c.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return k.url.indexOf(base) === 0; }).map(function (k) { delete audioHave[k.url]; return c.delete(k); })); });
+    }).catch(function () {}) : Promise.resolve();
+    return rmAudio.then(function () { return idbDo("readwrite", function (st) { return st.delete(id); }); }).then(done, done);
   }
 
   /* ---------- state ---------- */
@@ -561,7 +659,8 @@
   function label(b, c) { return nm(b) + " " + c; }
   function audioUrl(b, c) { return audioUrlFor(tr, b, c); }
   function audioUrlFor(t, b, c) {
-    if (!t || !t.audio) return "";
+    if (!t || (!t.audio && !t.custom)) return "";
+    if (t.custom) return audioBase(t) + pad(b + 1, 2) + "_" + KJV_AUD[b] + (NO_NUM[b] ? "" : pad(c, 3)) + ".mp3";   // only a name for the copy kept on this device
     if (t.audio === "rst") {
       var n = pad(b + 1, 2) + "_" + (b === 21 ? "SongofSongs" : NAMES.en[b].replace(/ /g, ""));   // the Russian host calls it Song of Songs
       return DBS_BASE + (b < 39 ? "OT" : "NT") + "_RUSS76/" + n + "/" + n + "_" + pad(c, 3) + ".mp3";
@@ -1534,6 +1633,7 @@
       supported: function () { return !!window.caches; }
     },
     open: open,
+    addVersion: addVersion, removeVersion: removeVersion, customs: readCustoms,
     audioUrl: function (id, b, c) { return audioUrlFor(TR[id], b, c); },   // the recording's address, so the plan screen can ask it how long a chapter is
     close: function () { close(false); },
     saved: savedSpot,
