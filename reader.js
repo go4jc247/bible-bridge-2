@@ -290,17 +290,109 @@
       }).catch(function () {});
     } catch (e) { return Promise.resolve(); }
   }
+  /* ---------- MP3 length check ----------
+     Some audio Bibles build each chapter-1 file by gluing a short "Genesis, chapter 1" clip onto the front of the
+     chapter. The clip's own header (Xing/Info or VBRI) then sits at the start of the whole file and says the file is
+     only a few seconds long. Safari on iPhone believes it, so the player shows 0:03 and the follow-along scroll runs
+     straight to the bottom while the chapter keeps playing. mp3Scan() counts the real audio frames, and when the
+     header disagrees it writes the true length into the header (or disables a VBRI one) so every browser gets it right. */
+  var MP3_BR = [[0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0], [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0]];
+  var MP3_SR = [44100, 48000, 32000, 0];
+  function mp3Head(u, i) {                            // one Layer III frame header at i: { len, spf, sr } or null
+    if (i + 4 > u.length || u[i] !== 0xFF || (u[i + 1] & 0xE0) !== 0xE0) return null;
+    var ver = (u[i + 1] >> 3) & 3, lay = (u[i + 1] >> 1) & 3;
+    if (ver === 1 || lay !== 1) return null;           // reserved version, or not Layer III
+    var bri = u[i + 2] >> 4, sri = (u[i + 2] >> 2) & 3, pad = (u[i + 2] >> 1) & 1;
+    if (bri === 0 || bri === 15 || sri === 3) return null;
+    var v1 = ver === 3, sr = MP3_SR[sri] / (v1 ? 1 : ver === 2 ? 2 : 4), br = MP3_BR[v1 ? 0 : 1][bri] * 1000;
+    var len = Math.floor((v1 ? 144 : 72) * br / sr) + pad;
+    return len > 4 ? { len: len, spf: v1 ? 1152 : 576, sr: sr, v1: v1, mono: (u[i + 3] >> 6) === 3 } : null;
+  }
+  function id3Len(u, i) {                             // size of an ID3v2 tag starting at i, or 0
+    if (i + 10 > u.length || u[i] !== 0x49 || u[i + 1] !== 0x44 || u[i + 2] !== 0x33) return 0;
+    var n = ((u[i + 6] & 127) << 21) | ((u[i + 7] & 127) << 14) | ((u[i + 8] & 127) << 7) | (u[i + 9] & 127);
+    return 10 + n + ((u[i + 5] & 0x10) ? 10 : 0);
+  }
+  function mp3Scan(buf) {
+    var u = new Uint8Array(buf), i = 0, frames = [], samples = 0, sr = 0, first = -1, guard = 0;
+    while (i < u.length - 4 && guard++ < 2000000) {
+      var t = id3Len(u, i); if (t) { i += t; continue; }
+      var h = mp3Head(u, i);
+      if (h && (i + h.len >= u.length - 4 || mp3Head(u, i + h.len) || id3Len(u, i + h.len))) {
+        if (first < 0) first = i;
+        frames.push(i); samples += h.spf; if (!sr) sr = h.sr;
+        i += h.len; continue;
+      }
+      i++;                                             // not a frame: slide forward until the next real one
+    }
+    if (!frames.length || !sr) return { dur: 0, fixed: null };
+    var dur = samples / sr, fixed = null;
+    var fh = mp3Head(u, first), side = fh.v1 ? (fh.mono ? 17 : 32) : (fh.mono ? 9 : 17), x = first + 4 + side;
+    var tag = String.fromCharCode(u[x], u[x + 1], u[x + 2], u[x + 3]);
+    var dv = new DataView(buf);
+    if (tag === "Xing" || tag === "Info") {
+      var fl = dv.getUint32(x + 4), o = x + 8, audioFrames = frames.length - 1;   // the header frame is not audio
+      var said = (fl & 1) ? dv.getUint32(o) : 0;
+      if ((fl & 1) && Math.abs(said - audioFrames) > Math.max(10, audioFrames * 0.02)) {
+        var out = buf.slice(0), w = new DataView(out), ob = new Uint8Array(out), total = u.length - first;
+        w.setUint32(o, audioFrames); o += 4;
+        if (fl & 2) { w.setUint32(o, total); o += 4; }
+        if (fl & 4) {                                  // rebuild the seek table: byte position at each 1% of the time
+          for (var k = 0; k < 100; k++) {
+            var fi = 1 + Math.min(audioFrames - 1, Math.floor(k / 100 * audioFrames));
+            ob[o + k] = Math.min(255, Math.floor((frames[fi] - first) / total * 256));
+          }
+        }
+        fixed = out;
+      }
+    } else {
+      var vx = first + 4 + 32;                         // a VBRI header always sits 32 bytes after the frame header
+      if (String.fromCharCode(u[vx], u[vx + 1], u[vx + 2], u[vx + 3]) === "VBRI") {
+        var vsaid = dv.getUint32(vx + 14);
+        if (Math.abs(vsaid - frames.length) > Math.max(10, frames.length * 0.02)) {
+          fixed = buf.slice(0); new Uint8Array(fixed).set([0x58, 0x58, 0x58, 0x58], vx);   // "XXXX": the browser then measures the file itself
+        }
+      }
+    }
+    return { dur: dur, fixed: fixed };
+  }
+  // check (and if needed repair) one audio file; resolves { blob, dur } -- the original blob if it was fine or isn't MP3
+  function checkAudio(bl) {
+    if (!bl || !/mpeg|mp3/i.test(bl.type || "audio/mpeg") || bl.size > 80e6) return Promise.resolve({ blob: bl, dur: 0 });
+    return bl.arrayBuffer().then(function (buf) {
+      var r = mp3Scan(buf);
+      return { blob: r.fixed ? new Blob([r.fixed], { type: "audio/mpeg" }) : bl, dur: r.dur, changed: !!r.fixed };
+    }).catch(function () { return { blob: bl, dur: 0 }; });
+  }
+  function audioResp(bl, dur) {
+    var hd = { "Content-Type": bl.type || "audio/mpeg" };
+    if (dur > 0) hd["X-BB-Len"] = String(Math.round(dur * 1000) / 1000);
+    return new Response(bl, { status: 200, headers: hd });
+  }
   // give an audio element a chapter: from this device when it is saved here, otherwise from the internet
   function setSrc(el, b, c, after) {
     var u = audioUrlFor(tr, b, c), n = el._sq = (el._sq || 0) + 1;
     if (el._bu) { try { URL.revokeObjectURL(el._bu); } catch (e) {} el._bu = null; }
+    el._estD = 0;
     if (!u || !audioHave[u] || !window.caches) { el.src = u; if (after) after(); return; }
-    caches.open(AUDIO_CACHE).then(function (ca) { return ca.match(new Request(u)); })
-      .then(function (r) { return r ? r.blob() : null; })
+    var cust = !!(tr && tr.custom), ca0 = null;
+    caches.open(AUDIO_CACHE).then(function (ca) { ca0 = ca; return ca.match(new Request(u)); })
+      .then(function (r) {
+        if (!r) return null;
+        var known = parseFloat(r.headers.get("X-BB-Len") || "");
+        return r.blob().then(function (bl) {
+          if (known > 0 || !cust) return { blob: bl, dur: known > 0 ? known : 0 };
+          // an added version's file saved before this check existed: check it now, once, and keep the result
+          return checkAudio(bl).then(function (k) {
+            if (k.dur > 0 && ca0) ca0.put(new Request(u), audioResp(k.blob, k.dur)).catch(function () {});
+            return k;
+          });
+        });
+      })
       .catch(function () { return null; })
-      .then(function (bl) {
+      .then(function (k) {
         if (el._sq !== n) return;
-        if (bl) { el._bu = URL.createObjectURL(bl); el.src = el._bu; } else { delete audioHave[u]; el.src = u; }
+        if (k && k.blob) { el._estD = k.dur || 0; el._bu = URL.createObjectURL(k.blob); el.src = el._bu; } else { delete audioHave[u]; el.src = u; }
         if (after) after();
       });
   }
@@ -558,7 +650,11 @@
             return stuck(j.get(), 60000, "unpacking " + j.label).then(function (bl) {
               if (!bl || bl.size < 2000) throw new Error("empty");
               var url = audioUrlFor(t, j.bc.b, j.bc.c);
-              return cacheStrict(AUDIO_CACHE, url, new Response(bl, { status: 200, headers: { "Content-Type": bl.type || "audio/mpeg" } })).then(function () { audioHave[url] = true; res.saved++; });
+              if (!bl.type) bl = new Blob([bl], { type: "audio/mpeg" });
+              return checkAudio(bl).then(function (k) {
+                if (k.changed) res.fixed = (res.fixed || 0) + 1;
+                return cacheStrict(AUDIO_CACHE, url, audioResp(k.blob, k.dur));
+              }).then(function () { audioHave[url] = true; res.saved++; });
             }).catch(function (e) {
               var m = String(e && e.name || "") + String(e && e.message || "");
               if (/Quota/i.test(m)) { res.error = "full"; throw e; }
@@ -702,7 +798,7 @@
     if (!tr) return;
     var s = { tr: tr.id };
     if (viewing) s.read = { b: viewing.b, c: viewing.c, off: Math.round(readOff) };
-    if (playing) s.audio = { b: playing.b, c: playing.c, t: audioT, d: isFinite(A.duration) && A.duration > 0 ? A.duration : audioD, rw: rewound };
+    if (playing) s.audio = { b: playing.b, c: playing.c, t: audioT, d: realDur() || audioD, rw: rewound };
     store(STATE_KEY, JSON.stringify(s));
     lastSave = Date.now();
   }
@@ -1150,10 +1246,11 @@
   }
 
   function onMeta() {
-    if (isFinite(A.duration) && A.duration > 0) { audioD = A.duration; $("#rd-tdur").textContent = fmt(A.duration); if (playing) lenCache[lenKey(playing)] = A.duration; }
-    if (pendingFrac !== null && isFinite(A.duration) && A.duration > 0) { pendingSeek = pendingFrac * A.duration; pendingFrac = null; }
-    if (pendingSeek !== null && isFinite(A.duration) && A.duration > 0) {
-      var t = Math.min(pendingSeek, Math.max(0, A.duration - 1));
+    var D0 = realDur();
+    if (D0 > 0) { audioD = D0; $("#rd-tdur").textContent = fmt(D0); if (playing) lenCache[lenKey(playing)] = D0; }
+    if (pendingFrac !== null && D0 > 0) { pendingSeek = pendingFrac * D0; pendingFrac = null; }
+    if (pendingSeek !== null && D0 > 0) {
+      var t = Math.min(pendingSeek, Math.max(0, D0 - 1));
       pendingSeek = null;
       try { A.currentTime = t; } catch (e) {}
     }
@@ -1238,12 +1335,20 @@
   var held = false, sysUntil = 0, raf = 0, lastTs = 0, fpos = null, pitch = 0, rng = document.createRange();
 
   function lenKey(ch) { return tr.id + ":" + ch.b + ":" + ch.c; }
+  // the playing chapter's length. The browser's number is used unless it disagrees with the length counted from the
+  // file itself, or playback has already gone past it -- both mean the file's header was wrong.
+  function realDur() {
+    var d = A.duration, e = A._estD || 0;
+    if (e > 0 && (!isFinite(d) || d <= 0 || Math.abs(d - e) > Math.max(2, e * 0.05))) return e;
+    if (isFinite(d) && d > 0 && A.currentTime > d + 1) return 0;     // ran past the end it reported: length unknown
+    return isFinite(d) && d > 0 ? d : 0;
+  }
   function curDuration(ch) {
     ch = ch || playing;
     if (!ch) return 0;
     if (playing && same(ch, playing)) {
-      var d = A.duration;
-      if (isFinite(d) && d > 0) return d;
+      var d = realDur();
+      if (d > 0) return d;
       if (audioD > 0) return audioD;
     }
     return lenCache[lenKey(ch)] > 0 ? lenCache[lenKey(ch)] : 0;
@@ -1264,7 +1369,7 @@
       var cbs = probing[k]; delete probing[k];
       for (var i = 0; i < cbs.length; i++) if (cbs[i]) cbs[i](v || 0);
     }
-    function check() { var d = a.duration; if (isFinite(d) && d > 0) fin(d); }
+    function check() { var d = a._estD > 0 ? a._estD : a.duration; if (isFinite(d) && d > 0) fin(d); }
     a.onloadedmetadata = check; a.ondurationchange = check;
     a.onerror = function () { fin(0); };
     t = setTimeout(function () { fin(0); }, 20000);
@@ -1533,7 +1638,7 @@
     A.addEventListener("durationchange", onMeta);
     A.addEventListener("timeupdate", function () {
       if (seeking || pendingSeek !== null) return;
-      var d = A.duration;
+      var d = realDur();
       audioT = A.currentTime;
       if (!A.paused && audioT > 0.5) rewound = false;
       $("#rd-tcur").textContent = fmt(A.currentTime);
@@ -1578,7 +1683,7 @@
         play: function () { togglePlay(); }, pause: function () { A.pause(); },
         previoustrack: onPrev, nexttrack: onNext,
         seekbackward: function () { A.currentTime = Math.max(0, A.currentTime - 15); },
-        seekforward: function () { A.currentTime = Math.min(A.duration || 1e9, A.currentTime + 15); }
+        seekforward: function () { A.currentTime = Math.min(realDur() || 1e9, A.currentTime + 15); }
       };
       Object.keys(acts).forEach(function (k) { try { navigator.mediaSession.setActionHandler(k, acts[k]); } catch (e) {} });
     }
