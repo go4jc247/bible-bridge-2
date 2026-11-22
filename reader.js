@@ -83,6 +83,7 @@
   var S = {
     en: { end: "End of the Bible", loading: "Loading…", tapStart: "Tap play to start",
       failStart: "Audio did not start. Tap play to try again.", failLoad: "Audio did not load. Check your connection, then tap play.",
+      failNone: "No audio is saved for this chapter. Add it from this version's download screen.", failFile: "This chapter's audio file couldn't be played. Try adding it again.",
       chip: function (x) { return "Playing " + x + " · Jump there"; }, followChip: "Resume auto-scroll", textSize: "Text size", reset: "Reset",
       resetLabel: "Reset text size to standard", auto: "Auto", autoLabel: "Scroll along with the audio", resume: "Ready to resume · tap play",
       play: "Play", pause: "Pause", prev: "Previous chapter", next: "Next chapter", back: "Back", smaller: "Smaller text",
@@ -90,7 +91,7 @@
       trLabel: "Bible translation", withAudio: "Text and audio", textOnly: "Text only",
       noText: "The text did not load. Check your connection.", retry: "Try again" },
     ru: { end: "Конец Библии", loading: "Загрузка…", tapStart: "Нажмите «Воспроизвести»",
-      failStart: "Аудио не запустилось. Нажмите «Воспроизвести» ещё раз.", failLoad: "Аудио не загрузилось. Проверьте соединение и нажмите «Воспроизвести».",
+      failStart: "Аудио не запустилось. Нажмите «Воспроизвести» ещё раз.", failNone: "Для этой главы аудио не сохранено. Добавьте его на экране загрузки этого перевода.", failFile: "Не удалось воспроизвести аудиофайл этой главы. Попробуйте добавить его снова.", failLoad: "Аудио не загрузилось. Проверьте соединение и нажмите «Воспроизвести».",
       chip: function (x) { return "Играет " + x + " · Перейти"; }, followChip: "Возобновить автопрокрутку", textSize: "Размер текста", reset: "Сброс",
       resetLabel: "Вернуть стандартный размер текста", auto: "Авто", autoLabel: "Прокручивать вместе с аудио", resume: "Готово продолжить · нажмите «Воспроизвести»",
       play: "Воспроизвести", pause: "Пауза", prev: "Предыдущая глава", next: "Следующая глава", back: "Назад", smaller: "Мельче",
@@ -98,7 +99,7 @@
       trLabel: "Перевод Библии", withAudio: "Текст и аудио", textOnly: "Только текст",
       noText: "Текст не загрузился. Проверьте соединение.", retry: "Повторить" },
     es: { end: "Fin de la Biblia", loading: "Cargando…", tapStart: "Toca reproducir para empezar",
-      failStart: "El audio no empezó. Toca reproducir para intentarlo de nuevo.", failLoad: "El audio no cargó. Revisa tu conexión y toca reproducir.",
+      failStart: "El audio no empezó. Toca reproducir para intentarlo de nuevo.", failNone: "No hay audio guardado para este capítulo. Agrégalo desde la pantalla de descargas de esta versión.", failFile: "No se pudo reproducir el audio de este capítulo. Intenta agregarlo de nuevo.", failLoad: "El audio no cargó. Revisa tu conexión y toca reproducir.",
       chip: function (x) { return "Reproduciendo " + x + " · Ir allí"; }, followChip: "Reanudar desplazamiento automático", textSize: "Tamaño del texto", reset: "Restablecer",
       resetLabel: "Restablecer el tamaño estándar del texto", auto: "Auto", autoLabel: "Desplazar junto con el audio", resume: "Listo para continuar · toca reproducir",
       play: "Reproducir", pause: "Pausa", prev: "Capítulo anterior", next: "Capítulo siguiente", back: "Atrás", smaller: "Texto más pequeño",
@@ -282,12 +283,13 @@
   var audioHave = {};                                // audio url -> true, for chapters saved on this device
   var dlJobs = {}, dlSubs = [];
 
+  var audioScanned = false;                          // true once the startup look through saved audio has finished
   function loadAudioHave() {
     try {
       if (!window.caches) return Promise.resolve();
       return caches.open(AUDIO_CACHE).then(function (c) { return c.keys(); }).then(function (ks) {
         for (var i = 0; i < ks.length; i++) audioHave[ks[i].url] = true;
-      }).catch(function () {});
+      }).catch(function () {}).then(function () { audioScanned = true; });
     } catch (e) { return Promise.resolve(); }
   }
   /* ---------- MP3 length check ----------
@@ -327,31 +329,27 @@
     }
     if (!frames.length || !sr) return { dur: 0, fixed: null };
     var dur = samples / sr, fixed = null;
-    var fh = mp3Head(u, first), side = fh.v1 ? (fh.mono ? 17 : 32) : (fh.mono ? 9 : 17), x = first + 4 + side;
-    var tag = String.fromCharCode(u[x], u[x + 1], u[x + 2], u[x + 3]);
-    var dv = new DataView(buf);
-    if (tag === "Xing" || tag === "Info") {
-      var fl = dv.getUint32(x + 4), o = x + 8, audioFrames = frames.length - 1;   // the header frame is not audio
-      var said = (fl & 1) ? dv.getUint32(o) : 0;
-      if ((fl & 1) && Math.abs(said - audioFrames) > Math.max(10, audioFrames * 0.02)) {
-        var out = buf.slice(0), w = new DataView(out), ob = new Uint8Array(out), total = u.length - first;
-        w.setUint32(o, audioFrames); o += 4;
-        if (fl & 2) { w.setUint32(o, total); o += 4; }
-        if (fl & 4) {                                  // rebuild the seek table: byte position at each 1% of the time
-          for (var k = 0; k < 100; k++) {
-            var fi = 1 + Math.min(audioFrames - 1, Math.floor(k / 100 * audioFrames));
-            ob[o + k] = Math.min(255, Math.floor((frames[fi] - first) / total * 256));
-          }
-        }
-        fixed = out;
+    var fh = mp3Head(u, first), side = fh.v1 ? (fh.mono ? 17 : 32) : (fh.mono ? 9 : 17);
+    var tagAt = function (x) { return x + 4 <= u.length ? String.fromCharCode(u[x], u[x + 1], u[x + 2], u[x + 3]) : ""; };
+    var x = first + 4 + side, tag = tagAt(x), said = -1;
+    if (tag === "Xing" || tag === "Info") { var fl = (u[x + 4] << 24 | u[x + 5] << 16 | u[x + 6] << 8 | u[x + 7]) >>> 0; if (fl & 1) said = (u[x + 8] << 24 | u[x + 9] << 16 | u[x + 10] << 8 | u[x + 11]) >>> 0; }
+    else if (tagAt(first + 36) === "VBRI") { tag = "VBRI"; said = (u[first + 50] << 24 | u[first + 51] << 16 | u[first + 52] << 8 | u[first + 53]) >>> 0; }
+    else tag = "";
+    if (tag) {
+      // a second header further in means two recordings were glued together ("Genesis, chapter 1" + the chapter)
+      var glued = false;
+      for (var q = 1; q < frames.length && !glued; q++) {
+        var hq = mp3Head(u, frames[q]); if (!hq) continue;
+        var xq = frames[q] + 4 + (hq.v1 ? (hq.mono ? 17 : 32) : (hq.mono ? 9 : 17)), tq = tagAt(xq);
+        if (tq === "Xing" || tq === "Info" || tagAt(frames[q] + 36) === "VBRI") glued = true;
       }
-    } else {
-      var vx = first + 4 + 32;                         // a VBRI header always sits 32 bytes after the frame header
-      if (String.fromCharCode(u[vx], u[vx + 1], u[vx + 2], u[vx + 3]) === "VBRI") {
-        var vsaid = dv.getUint32(vx + 14);
-        if (Math.abs(vsaid - frames.length) > Math.max(10, frames.length * 0.02)) {
-          fixed = buf.slice(0); new Uint8Array(fixed).set([0x58, 0x58, 0x58, 0x58], vx);   // "XXXX": the browser then measures the file itself
-        }
+      var real = frames.length - 1;
+      if (glued || (said >= 0 && Math.abs(said - real) > Math.max(10, real * 0.02))) {
+        // leave the audio untouched and simply drop that one header frame (it holds no sound). With no header left,
+        // the browser works the length out from the file itself.
+        var flen = fh.len, out = new Uint8Array(u.length - flen);
+        out.set(u.subarray(0, first), 0); out.set(u.subarray(first + flen), first);
+        fixed = out.buffer;
       }
     }
     return { dur: dur, fixed: fixed };
@@ -367,21 +365,23 @@
   function audioResp(bl, dur) {
     var hd = { "Content-Type": bl.type || "audio/mpeg" };
     if (dur > 0) hd["X-BB-Len"] = String(Math.round(dur * 1000) / 1000);
+    hd["X-BB-Chk"] = "2";                              // checked by the current rules
     return new Response(bl, { status: 200, headers: hd });
   }
   // give an audio element a chapter: from this device when it is saved here, otherwise from the internet
   function setSrc(el, b, c, after) {
     var u = audioUrlFor(tr, b, c), n = el._sq = (el._sq || 0) + 1;
     if (el._bu) { try { URL.revokeObjectURL(el._bu); } catch (e) {} el._bu = null; }
-    el._estD = 0;
-    if (!u || !audioHave[u] || !window.caches) { el.src = u; if (after) after(); return; }
+    el._estD = 0; el._none = false;
     var cust = !!(tr && tr.custom), ca0 = null;
+    if (!u || !window.caches || (!audioHave[u] && !cust && audioScanned)) { el.src = u; if (after) after(); return; }
     caches.open(AUDIO_CACHE).then(function (ca) { ca0 = ca; return ca.match(new Request(u)); })
       .then(function (r) {
         if (!r) return null;
-        var known = parseFloat(r.headers.get("X-BB-Len") || "");
+        audioHave[u] = true;
+        var known = parseFloat(r.headers.get("X-BB-Len") || ""), chk = r.headers.get("X-BB-Chk") === "2";
         return r.blob().then(function (bl) {
-          if (known > 0 || !cust) return { blob: bl, dur: known > 0 ? known : 0 };
+          if (!cust || (chk && known > 0)) return { blob: bl, dur: known > 0 ? known : 0 };
           // an added version's file saved before this check existed: check it now, once, and keep the result
           return checkAudio(bl).then(function (k) {
             if (k.dur > 0 && ca0) ca0.put(new Request(u), audioResp(k.blob, k.dur)).catch(function () {});
@@ -392,7 +392,9 @@
       .catch(function () { return null; })
       .then(function (k) {
         if (el._sq !== n) return;
-        if (k && k.blob) { el._estD = k.dur || 0; el._bu = URL.createObjectURL(k.blob); el.src = el._bu; } else { delete audioHave[u]; el.src = u; }
+        if (k && k.blob) { el._estD = k.dur || 0; el._bu = URL.createObjectURL(k.blob); el.src = el._bu; }
+        else if (cust) { delete audioHave[u]; el._none = true; el.removeAttribute("src"); try { el.load(); } catch (e) {} if (el === A && playing) setMsg(T().failNone); }   // an added version has no copy online
+        else { delete audioHave[u]; el.src = u; }
         if (after) after();
       });
   }
@@ -1162,9 +1164,11 @@
     setSrc(A, b, c, function () {
       if (!playing || playing.b !== b || playing.c !== c) return;
       A.defaultPlaybackRate = rate; A.playbackRate = rate;
+      if (A._none) { setMsg(T().failNone); updatePP(); return; }   // nothing to play: say so instead of trying
       var pr = A.play();
       if (pr && pr.catch) pr.catch(function (e) {
-        setMsg(e && e.name === "NotAllowedError" ? T().tapStart : T().failStart);
+        var bad = (A.error || (e && e.name === "NotSupportedError")) && /^blob:/.test(A.currentSrc || A.src || "");
+        setMsg(e && e.name === "NotAllowedError" ? T().tapStart : bad ? T().failFile : T().failStart);
         updatePP();
       });
     });
@@ -1218,7 +1222,7 @@
       if (cur) playChapter(cur.b, cur.c);
       return;
     }
-    if (A.error) { var p = playing; playChapter(p.b, p.c); return; }
+    if (A.error || A._none) { var p = playing; playChapter(p.b, p.c); return; }
     if (A.paused) {
       if (followOn && viewingPlaying()) held = false;
       var pr = A.play();
@@ -1699,7 +1703,8 @@
     A.addEventListener("error", function () {
       if (preClipPlaying) { preClipPlaying = false; var cb = preClipCb; preClipCb = null; if (cb) cb(); return; }   // missing/bad clip: just skip to the chapter
       if (!playing) return;
-      setMsg(T().failLoad);
+      if (A._none) { setMsg(T().failNone); updatePP(); return; }
+      setMsg(/^blob:/.test(A.currentSrc || A.src || "") ? T().failFile : T().failLoad);
       updatePP();
     });
     A.addEventListener("loadedmetadata", onMeta);
