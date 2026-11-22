@@ -210,7 +210,7 @@ function allLangs(){return LANGS.concat(XLANGS)}
 function langById(id){return LANGS.filter(function(l){return l.id===id})[0]||XLANGS.filter(function(l){return l.id===id})[0]||BXLANGS.filter(function(l){return l.id===id})[0]||LANGS[0]}
 function versionsFor(l){return VERSIONS.filter(function(v){return v.lang===l&&!v.more})}
 function versionsAll(l){var a=versionsFor(l);return a.concat(VERSIONS.filter(function(v){return v.lang===l&&v.more}))}
-function curVersion(){var v=VERSIONS.filter(function(x){return x.id===state.prefs.ver})[0];if(!v||v.lang!==state.prefs.lang){v=versionsFor(state.prefs.lang)[0];state.prefs.ver=v.id}return v}
+function curVersion(){var v=VERSIONS.filter(function(x){return x.id===state.prefs.ver})[0];if(!v||v.lang!==state.prefs.lang){var keep=!v&&/^app-/.test(state.prefs.ver||"")&&!/^app-(kjv|rst|web|bsb|asv|darby|webster|ylt|rv1909)$/.test(state.prefs.ver);v=versionsFor(state.prefs.lang)[0];if(!keep)state.prefs.ver=v.id}return v}   /* an added version may still be coming back from the device's storage: don't forget the choice */
 function seed(){
   var t=todayStr();
   return {prefs:{lang:"en",ver:"esv-mclean",mode:"listen",tab:"plans",theme:"auto",alarmOn:false,alarmTime:"06:30"},
@@ -1230,6 +1230,8 @@ function syncCustom(){
   });
 }
 syncCustom();
+// reader.js found an added version that had dropped off the list (and put it back): show it again
+window.addEventListener("bb-custom",function(){syncCustom();try{refreshAll()}catch(e){}});
 
 /* ---------- bible.com (YouVersion) links ----------
    Bible Bridge only links out. No Bible text or audio is stored here.
@@ -1754,6 +1756,7 @@ function openDownloads(v,view){
     }
     var row=h("div",{class:"dlrow"});
     if(k==="text"&&isC){
+      if(BBReader.customMissing&&BBReader.customMissing(v.app))box.appendChild(h("p",{class:"note",text:"The text file for this version isn\u2019t on this device any more. Tap Replace text and pick the .bbt file again. Your audio is kept."}));
       row.appendChild(h("button",{class:"btn sm",type:"button",onclick:function(){mode={k:"retext"};paint()}},["Replace text\u2026"]));
       row.appendChild(h("button",{class:"btn sm ghost",type:"button",onclick:function(){mode={k:"rm",kind:"text"};paint()}},["Remove this version"]));
       box.appendChild(row);return box;

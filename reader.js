@@ -31,7 +31,13 @@
      Nothing is uploaded and nothing is written into the app's files, so a copyrighted text stays on your device only. */
   var CUSTOM_KEY = "bb-custom";
   function readCustoms() { try { var a = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
-  function writeCustoms(a) { try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(a)); } catch (e) {} }
+  // the list is kept twice: in localStorage (read instantly at start) and next to the texts in IndexedDB (the safe copy).
+  // If either goes missing or a write fails, healCustoms() rebuilds it from the other and from the texts themselves.
+  function writeCustoms(a) {
+    try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(a)); } catch (e) {}
+    try { if (window.indexedDB) idbDo("readwrite", function (st) { return st.put(JSON.stringify(a), LIST_KEY); }).catch(function () {}); } catch (e) {}
+  }
+  var LIST_KEY = "__list";
   function addCustomTr(c) {
     TR[c.id] = { id: c.id, short: c.short, name: c.name, lang: c.lang, ps: c.lang === "ru" ? "ru" : "en", audio: c.audio ? "c:" + c.id : null, custom: true };
     if (ORDER.indexOf(c.id) < 0) ORDER.push(c.id);
@@ -43,6 +49,29 @@
     if (TR[id]) TR[id].audio = on ? "c:" + id : null;
   }
   readCustoms().forEach(addCustomTr);
+  var customMissing = {};                              // id -> true when the list names a version whose text isn't on the device
+  function healCustoms() {
+    if (!window.indexedDB) return Promise.resolve();
+    return idbDo("readonly", function (st) { return st.getAllKeys ? st.getAllKeys() : null; }).then(function (keys) {
+      return idbDo("readonly", function (st) { return st.get(LIST_KEY); }).then(function (saved) {
+        var texts = (keys || []).filter(function (k) { return k !== LIST_KEY; }), have = {};
+        texts.forEach(function (k) { have[k] = true; });
+        var cur = readCustoms(), byId = {}, out = [], changed = false;
+        cur.forEach(function (c) { if (c && c.id && !byId[c.id]) { byId[c.id] = c; out.push(c); } });
+        var safe = []; try { safe = JSON.parse(saved || "[]") || []; } catch (e) {}
+        safe.forEach(function (c) { if (c && c.id && !byId[c.id] && have[c.id]) { byId[c.id] = c; out.push(c); changed = true; } });
+        texts.forEach(function (k) {                    // a text with no entry at all: give it a plain one so it isn't lost
+          if (!byId[k] && /^[a-z0-9]{1,14}$/.test(k)) { var c = { id: k, short: k.toUpperCase(), name: k.toUpperCase(), lang: "en", audio: 0 }; byId[k] = c; out.push(c); changed = true; }
+        });
+        customMissing = {};
+        out.forEach(function (c) { if (!have[c.id]) customMissing[c.id] = true; });
+        out.forEach(function (c) { if (!TR[c.id]) addCustomTr(c); });
+        if (changed || JSON.stringify(safe) !== JSON.stringify(out) || JSON.stringify(cur) !== JSON.stringify(out)) writeCustoms(out);
+        if (changed) { try { window.dispatchEvent(new Event("bb-custom")); } catch (e) {} }
+        dlEmit();
+      });
+    }).catch(function () {});
+  }
   function idbDo(mode, fn) {
     return new Promise(function (res, rej) {
       var q = indexedDB.open("bbcustom", 1);
@@ -408,9 +437,13 @@
   }
   function haveText(id) {
     var out = {};
-    if (TR[id] && TR[id].custom) {                      // your own file always holds every chapter
-      for (var cb = 0; cb < CH_COUNT.length; cb++) for (var cc = 1; cc <= CH_COUNT[cb]; cc++) out[cb + "." + cc] = true;
-      return Promise.resolve(out);
+    if (TR[id] && TR[id].custom) {                      // your own file holds every chapter -- if it is really here
+      return idbDo("readonly", function (st) { return st.getKey ? st.getKey(id) : st.count(id); }).then(function (k) {
+        if (k === undefined || k === 0) { customMissing[id] = true; return out; }
+        delete customMissing[id];
+        for (var cb = 0; cb < CH_COUNT.length; cb++) for (var cc = 1; cc <= CH_COUNT[cb]; cc++) out[cb + "." + cc] = true;
+        return out;
+      }).catch(function () { return out; });
     }
     if (!window.caches) return Promise.resolve(out);
     var re = new RegExp("bible/" + id + "\\.bbt\\?c=(\\d+)\\.(\\d+)$");
@@ -440,7 +473,11 @@
   // full picture for one translation: every book, every chapter
   function dlStatus(id) {
     var t = TR[id];
-    return getIndex(id).then(function (ix) {
+    return getIndex(id).catch(function (e) {
+      // an added version whose text is gone still has a shape (a whole Bible) so its audio can be shown and kept
+      if (t && t.custom) return { len: CH_COUNT.map(function (n) { var a = []; for (var i = 0; i < n; i++) a.push(1); return a; }) };
+      throw e;
+    }).then(function (ix) {
       return Promise.all([haveText(id), t.audio || t.custom ? haveAudio(t) : Promise.resolve(null)]).then(function (r) {
         function build(isHave) {
           var books = [], done = 0, total = 0;
@@ -753,11 +790,19 @@
       }
       if (tot !== buf.byteLength - 10 - L) throw new Error("This file looks cut off or damaged. Try copying it to your phone again.");
       var base = String(meta.id || j.id || "mine").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12) || "mine";
+      if (!meta.id && meta.short) {                     // adding again under a short name you already have replaces that one
+        var same = readCustoms().filter(function (x) { return x.short === String(meta.short).toUpperCase().replace(/\s+/g, "").slice(0, 8); })[0];
+        if (same) base = same.id;
+      }
       var id = TR[base] && !TR[base].custom ? "my" + base : base;
       var short = String(meta.short || j.id || id).toUpperCase().replace(/\s+/g, "").slice(0, 8) || id.toUpperCase();
       var c = { id: id, short: short, name: String(meta.name || "").trim() || short, lang: /^(en|ru|es)$/.test(meta.lang) ? meta.lang : "en",
         audio: TR[id] && TR[id].custom && TR[id].audio ? 1 : 0 };
       return idbDo("readwrite", function (st) { return st.put(buf, id); }).then(function () {
+        return idbDo("readonly", function (st) { return st.get(id); });
+      }).then(function (back) {
+        if (!back || back.byteLength !== buf.byteLength) throw new Error("This phone didn't keep the file. It may be short on storage. Free up some space, then try again.");
+        delete customMissing[id];
         delete idxP[id]; delete whole[id]; delete Ds[id];
         var a = readCustoms().filter(function (x) { return x.id !== id; });
         a.push(c); writeCustoms(a); addCustomTr(c);
@@ -1801,6 +1846,7 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
 
   loadAudioHave();
+  healCustoms();
   tell("ready");
 
   window.BBReader = {
@@ -1811,7 +1857,8 @@
       supported: function () { return !!window.caches; }
     },
     open: open,
-    addVersion: addVersion, removeVersion: removeVersion, customs: readCustoms,
+    addVersion: addVersion, removeVersion: removeVersion, customs: readCustoms, healCustoms: healCustoms,
+    customMissing: function (id) { return !!customMissing[id]; },
     audioUrl: function (id, b, c) { return audioUrlFor(TR[id], b, c); },   // the recording's address, so the plan screen can ask it how long a chapter is
     close: function () { close(false); },
     saved: savedSpot,
