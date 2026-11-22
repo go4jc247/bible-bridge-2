@@ -1820,6 +1820,10 @@ function openDownloads(v,view){
         if(r.saved)lines.push(_f(r.saved===1?"Added {0} chapter. It now plays offline, at any speed.":"Added {0} chapters. They now play offline, at any speed.",[dlCount(r.saved)]));
         else lines.push("Nothing was added.");
         if(r.skipped)lines.push(_f(r.skipped===1?"{0} file skipped because the app couldn't tell which chapter it is.":"{0} files skipped because the app couldn't tell which chapter they are.",[dlCount(r.skipped)])+(r.unmatched.length?" "+r.unmatched.slice(0,4).join(", ")+(r.skipped>4?"\u2026":""):""));
+        if(!r.saved&&!r.skipped&&!r.error){
+          if(r.other&&r.other.length)lines.push("The zip has no audio files the app can use. It found: "+r.other.slice(0,4).join(", ")+(r.other.length>4?"\u2026":"")+".");
+          else if(r.inZip===0)lines.push("No files were found in what you picked. If it's a zip, try opening it in Files first and picking the audio files inside.");
+        }
         if(r.failed)lines.push(_f("{0} couldn't be saved.",[dlCount(r.failed)]));
         if(r.error==="full")lines.push("The device ran out of storage space. What was added is kept.");
         else if(r.error==="nocache")lines.push("This browser can't keep files for offline use here.");

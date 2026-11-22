@@ -557,18 +557,66 @@
   function normName(s) { return String(s).toLowerCase().replace(/[^a-z0-9]/g, ""); }
   var AUD_ALIAS = { songofsongs: 21, songofsolomon: 21, songofsoloman: 21, psalm: 18, revelations: 65 };
   // "43_John001.mp3", "John001.mp3", "62_1John001.mp3" ... -> { b, c } or null
+  // book names (and common short forms) to look for anywhere in a file name, longest first so "1 John" beats "John"
+  var BOOK_WORDS = (function () {
+    var full = ["genesis","exodus","leviticus","numbers","deuteronomy","joshua","judges","ruth","1 samuel","2 samuel","1 kings","2 kings",
+      "1 chronicles","2 chronicles","ezra","nehemiah","esther","job","psalms","proverbs","ecclesiastes","song of solomon","isaiah","jeremiah",
+      "lamentations","ezekiel","daniel","hosea","joel","amos","obadiah","jonah","micah","nahum","habakkuk","zephaniah","haggai","zechariah",
+      "malachi","matthew","mark","luke","john","acts","romans","1 corinthians","2 corinthians","galatians","ephesians","philippians",
+      "colossians","1 thessalonians","2 thessalonians","1 timothy","2 timothy","titus","philemon","hebrews","james","1 peter","2 peter",
+      "1 john","2 john","3 john","jude","revelation"];
+    var short = ["gen","exo|ex|exod","lev","num","deut|deu|dt","josh|jos","judg|jdg","rut|rth","1 sam|1 sa","2 sam|2 sa","1 kgs|1 ki|1 kin","2 kgs|2 ki|2 kin",
+      "1 chr|1 ch","2 chr|2 ch","ezr","neh","est|esth","jb","psalm|psa|ps|pss","prov|pro|prv","eccl|ecc|qoh","song of songs|song|sos|sng|canticles","isa","jer",
+      "lam","ezek|eze|ezk","dan","hos","jol","amo","oba|obad","jon|jnh","mic","nah|nam","hab","zeph|zep","hag","zech|zec",
+      "mal","matt|mat|mt","mrk|mar|mk","luk|lk","jhn|jn","act","rom","1 cor|1 co","2 cor|2 co","gal","eph","phil|php|phi","col",
+      "1 thess|1 th","2 thess|2 th","1 tim|1 ti","2 tim|2 ti","tit","phlm|phm|philem","heb","jas|jam","1 pet|1 pe|1 pt","2 pet|2 pe|2 pt",
+      "1 jn|1 jo|1 jhn","2 jn|2 jo|2 jhn","3 jn|3 jo|3 jhn","jud|jde","rev|re|revelations|apocalypse"];
+    var ord = { "1": "(?:1|i|first)", "2": "(?:2|ii|second)", "3": "(?:3|iii|third)" }, out = [];
+    full.forEach(function (w, b) { out.push({ w: w, b: b, full: 1 }); short[b].split("|").forEach(function (x) { out.push({ w: x, b: b, full: 0 }); }); });
+    out.sort(function (a, c) { return c.w.length - a.w.length; });
+    out.forEach(function (o) {
+      var src = o.w.replace(/^([123]) /, function (m, n) { return ord[n] + " ?"; }).replace(/ /g, " ?");
+      // full names may run into a number ("Genesis001"); short forms must stand alone or be followed by a number ("Gen01")
+      o.re = new RegExp("(?:^|[^a-z0-9])(" + src + ")(?=$|[^a-z])");
+    });
+    return out;
+  })();
+  function parseLoose(base) {
+    var s = " " + String(base).toLowerCase().replace(/[_\-.,()\[\]]+/g, " ").replace(/\s+/g, " ").trim() + " ";
+    // Faith Comes By Hearing style: "B01___01_Matthew_____ENGESVN2DA" (testament+order, then the chapter, then the book)
+    var f = /^ ?[ab]\d{2} (\d{1,3}) ([a-z0-9 ]+?) [a-z0-9]{8,} ?$/.exec(s);
+    var tail = s, chFirst = null;
+    if (f) { chFirst = parseInt(f[1], 10); tail = " " + f[2] + " "; }
+    for (var i = 0; i < BOOK_WORDS.length; i++) {
+      var o = BOOK_WORDS[i], m = o.re.exec(tail);
+      if (!m) continue;
+      var b = o.b, after = tail.slice(m.index + m[0].length), ch = chFirst;
+      if (ch == null) { var n = /^\s*0*(\d{1,3})(?!\d)/.exec(after) || /(?:^|[^a-z0-9])0*(\d{1,3})(?![0-9a-z])/.exec(after); ch = n ? parseInt(n[1], 10) : 0; }
+      if (NO_NUM[b] || CH_COUNT[b] === 1) ch = ch || 1;
+      if (!ch || ch > CH_COUNT[b]) continue;
+      return { b: b, c: ch };
+    }
+    return null;
+  }
   function parseAudioName(file) {
-    var base = String(file).split("/").pop().replace(/\.[A-Za-z0-9]+$/, "");
+    var base0 = String(file).split("/").pop().replace(/\.[A-Za-z0-9]+$/, "");
+    var ex = parseExact(base0);
+    if (ex && ex.c > CH_COUNT[ex.b]) ex = null;
+    if (ex && !ex.byNum) return ex;                   // the name itself said which book
+    return parseLoose(base0) || ex;                   // otherwise a book name found anywhere beats a bare order number
+  }
+  function parseExact(base) {
     var m = /^(?:(\d{1,2})[_\- ])?(.*?)(\d+)?$/.exec(base);
     if (!m) return null;
-    var num = m[1] ? parseInt(m[1], 10) - 1 : -1, nm2 = normName(m[2]), ch = m[3] ? parseInt(m[3], 10) : 0, b = -1, i;
+    var num = m[1] ? parseInt(m[1], 10) - 1 : -1, nm2 = normName(m[2]), ch = m[3] ? parseInt(m[3], 10) : 0, b = -1, i, byNum = false;
+    if (/^[123]$/.test(m[1] || "")) return null;      // "1 John 3", "2 Kings 25": that digit is part of the book name
     for (i = 0; i < KJV_AUD.length; i++) if (normName(KJV_AUD[i]) === nm2) { b = i; break; }
     if (b < 0 && AUD_ALIAS[nm2] != null) b = AUD_ALIAS[nm2];
-    if (b < 0 && num >= 0 && num < 66) b = num;
+    if (b < 0 && num >= 0 && num < 66) { b = num; byNum = true; }
     if (b < 0) return null;
     if (NO_NUM[b]) ch = 1;
     if (!ch) return null;
-    return { b: b, c: ch };
+    return { b: b, c: ch, byNum: byNum };
   }
   var CH_COUNT = [50,40,27,36,34,24,21,4,31,24,22,25,29,36,10,13,10,42,150,31,12,8,66,52,5,48,12,14,3,9,1,4,7,3,3,3,2,14,4,
     28,16,24,21,28,16,16,13,6,6,4,4,5,3,6,4,3,1,13,5,5,3,5,1,1,1,22];
@@ -613,14 +661,21 @@
       var hv = new DataView(hb);
       if (u32(hv, 0) !== 0x04034b50) throw new Error("damaged zip");
       var start = e.off + 30 + u16(hv, 26) + u16(hv, 28), data = f.slice(start, start + e.csize);
-      if (e.method === 0) return new Blob([data], { type: "audio/mpeg" });
+      if (e.method === 0) return new Blob([data], { type: audioType(e.name) });
       if (e.method !== 8) throw new Error("unsupported zip compression");
       if (typeof DecompressionStream === "undefined") throw new Error("This browser can't open compressed zips. Unpack the zip in Files and pick the MP3 files instead.");
-      return new Response(data.stream().pipeThrough(new DecompressionStream("deflate-raw"))).blob();
+      return new Response(data.stream().pipeThrough(new DecompressionStream("deflate-raw"))).blob().then(function (bl) { return new Blob([bl], { type: audioType(e.name) }); });
     });
   }
+  var AUDIO_EXT = /\.(mp3|m4a|m4b|aac|mp4|wav|ogg|opus)$/i;
+  function audioType(name) {
+    var x = (/\.([a-z0-9]+)$/i.exec(name || "") || [])[1] || "";
+    x = x.toLowerCase();
+    return x === "mp3" ? "audio/mpeg" : x === "m4a" || x === "m4b" || x === "mp4" ? "audio/mp4" : x === "aac" ? "audio/aac" :
+      x === "wav" ? "audio/wav" : x === "ogg" || x === "opus" ? "audio/ogg" : x === "zip" ? "application/zip" : "audio/mpeg";
+  }
   function importAudio(id, files, onProg) {
-    var t = TR[id], res = { saved: 0, skipped: 0, unmatched: [], failed: 0, error: "" };
+    var t = TR[id], res = { saved: 0, skipped: 0, unmatched: [], failed: 0, error: "", inZip: 0, other: [] };
     if (!t || (!t.audio && !t.custom) || t.audio === "rst") return Promise.resolve(res);
     if (!window.caches) { res.error = "nocache"; return Promise.resolve(res); }
     files = Array.prototype.slice.call(files || []);
@@ -634,12 +689,25 @@
       return files.reduce(function (p, f) {
         return p.then(function () {
           if (/\.zip$/i.test(f.name) || f.type === "application/zip" || f.type === "application/x-zip-compressed") {
-            if (onProg) onProg(0, 0, "Opening " + f.name);
-            return stuck(zipEntries(f), 30000, "reading the zip's file list").then(function (es) {
-              es.forEach(function (e) { if (/\.mp3$/i.test(e.name) && !/(^|\/)__MACOSX\//.test(e.name)) addJob(e.name.split("/").pop(), parseAudioName(e.name), function () { return zipBlob(f, e); }); });
-            });
+            // a zip may hold the audio files directly, in folders, or as more zips (one per book, say)
+            var openZip = function (z, name, depth) {
+              if (onProg) onProg(0, 0, "Opening " + name);
+              return stuck(zipEntries(z), 30000, "reading the zip's file list").then(function (es) {
+                return es.reduce(function (pp, e) {
+                  return pp.then(function () {
+                    if (/(^|\/)__MACOSX\//.test(e.name) || /\/$/.test(e.name) || /(^|\/)\./.test(e.name)) return;   // folders and Mac/hidden extras
+                    res.inZip++;
+                    var nm = e.name.split("/").pop();
+                    if (AUDIO_EXT.test(nm)) { addJob(nm, parseAudioName(e.name), function () { return zipBlob(z, e); }); return; }
+                    if (/\.zip$/i.test(nm) && depth < 2) return zipBlob(z, e).then(function (inner) { return openZip(inner, nm, depth + 1); });
+                    if (res.other.length < 6) res.other.push(nm);
+                  });
+                }, Promise.resolve());
+              });
+            };
+            return openZip(f, f.name, 0);
           }
-          if (/\.(mp3|m4a|aac|wav)$/i.test(f.name) || /^audio\//.test(f.type)) { addJob(f.name, parseAudioName(f.name), function () { return Promise.resolve(f); }); return; }
+          if (AUDIO_EXT.test(f.name) || /^audio\//.test(f.type)) { addJob(f.name, parseAudioName(f.name), function () { return Promise.resolve(f.type ? f : new Blob([f], { type: audioType(f.name) })); }); return; }
           res.skipped++; if (res.unmatched.length < 8) res.unmatched.push(f.name);
         });
       }, Promise.resolve()).then(function () {
