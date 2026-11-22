@@ -1905,8 +1905,11 @@ function versionRow(v,after){
   }
   return wrap;
 }
-function addVersionRow(box){
-  box.appendChild(h("button",{class:"btn ghost",type:"button",style:"margin-top:14px",onclick:openAddVersion},["Add a version from a file\u2026"]));
+function addVersionBtn(){
+  return h("button",{type:"button","aria-label":"Add a version from a file",style:"font:inherit;font-size:.95em;font-weight:600;color:var(--accent,#1d3a6b);background:none;border:0;padding:6px 2px;cursor:pointer;white-space:nowrap",onclick:openAddVersion},["+ Add version"]);
+}
+function addVersionTop(box,left){
+  box.appendChild(h("div",{style:"display:flex;justify-content:space-between;align-items:center;gap:12px"},[left||h("span"),addVersionBtn()]));
 }
 function openAddVersion(){
   openSheet(function(box){
@@ -1948,6 +1951,7 @@ function openVersions(){
   openSheet(function(box){
     box.appendChild(sheetHead("Bible version",RICO.ver));
     if(state.prefs.all){
+      addVersionTop(box);
       /* every language, each one collapsed until you open it */
       var cur=state.prefs.lang;if(vOpen[cur]==null)vOpen[cur]=true;
       var langs=allLangs().filter(function(l){return versionsAll(l.id).length}),first=langs.filter(function(l){return l.id===cur}),
@@ -1969,17 +1973,15 @@ function openVersions(){
         box.appendChild(h("div",{class:"lgroup"},[head,body]));
       });
       yvCopyRow(box);
-      addVersionRow(box);
       dlScanSoon(800);
       return;
     }
     var L=langById(state.prefs.lang);
-    box.appendChild(h("p",{class:"note",dir:"auto",text:L.flag+" "+L.nat+(L.nat!==L.en?" \u00b7 "+L.en:"")}));
+    addVersionTop(box,h("p",{class:"note",dir:"auto",style:"margin:0",text:L.flag+" "+L.nat+(L.nat!==L.en?" \u00b7 "+L.en:"")}));
     var all=versionsFor(state.prefs.lang),cv=VERSIONS.filter(function(x){return x.id===state.prefs.ver})[0];
     if(cv&&cv.more&&cv.lang===state.prefs.lang)all=all.concat([cv]);
     versionsSorted(all).forEach(function(v){box.appendChild(versionRow(v))});
     yvCopyRow(box);
-    addVersionRow(box);
     dlScanSoon(800);
   });
 }
