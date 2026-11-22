@@ -1754,6 +1754,7 @@ function openDownloads(v,view){
     }
     var row=h("div",{class:"dlrow"});
     if(k==="text"&&isC){
+      row.appendChild(h("button",{class:"btn sm",type:"button",onclick:function(){mode={k:"retext"};paint()}},["Replace text\u2026"]));
       row.appendChild(h("button",{class:"btn sm ghost",type:"button",onclick:function(){mode={k:"rm",kind:"text"};paint()}},["Remove this version"]));
       box.appendChild(row);return box;
     }
@@ -1782,6 +1783,27 @@ function openDownloads(v,view){
       b.appendChild(h("p",{class:"muted",text:"Audio is saved in your browser's storage on this device. Depending on your device's storage limits (iPhones can be strict), it may or may not all stay saved for offline use. Audio files are large: a whole Bible can run to hundreds of megabytes."}));
       b.appendChild(h("div",{style:"display:grid;gap:8px;margin-top:12px"},[
         h("button",{class:"btn",type:"button",onclick:function(){var m=mode;mode={k:"main",warned:true};dl.start(id,m.kind,m.pairs);paint()}},["Start download"]),
+        h("button",{class:"btn ghost",type:"button",onclick:function(){mode={k:"main"};paint()}},["Cancel"])]));
+      return;
+    }
+    if(mode.k==="retext"){
+      // swap in a corrected .bbt for a version you added: same version, same audio, only the words change
+      var cm=null;try{cm=(JSON.parse(localStorage.getItem("bb-custom")||"[]")||[]).filter(function(x){return x.id===v.app})[0]}catch(e){}
+      b.appendChild(h("p",{class:"muted",text:"Pick the corrected .bbt file. Only the text is replaced. The audio you added stays as it is."}));
+      var rfi=h("input",{type:"file"}),rerr=h("div",{class:"err",hidden:""});
+      b.appendChild(h("div",{class:"field"},[h("label",{text:"Text file"}),rfi]));
+      b.appendChild(rerr);
+      var rgo=h("button",{class:"btn",type:"button"},["Replace text"]);
+      rgo.onclick=function(){
+        var f=rfi.files&&rfi.files[0];
+        if(!f){rerr.hidden=false;rerr.textContent="Choose the .bbt file first.";return}
+        if(!cm){rerr.hidden=false;rerr.textContent="This version couldn\u2019t be found on this device.";return}
+        rerr.hidden=true;rgo.disabled=true;rgo.textContent="Replacing\u2026";
+        BBReader.addVersion(f,{id:cm.id,name:cm.name,short:cm.short,lang:cm.lang}).then(function(){
+          syncCustom();mode={k:"main"};toast(cm.short+" text replaced");refresh();
+        },function(e){rgo.disabled=false;rgo.textContent="Replace text";rerr.hidden=false;rerr.textContent=(e&&e.message)||"Couldn\u2019t use that file."});
+      };
+      b.appendChild(h("div",{style:"display:grid;gap:8px;margin-top:12px"},[rgo,
         h("button",{class:"btn ghost",type:"button",onclick:function(){mode={k:"main"};paint()}},["Cancel"])]));
       return;
     }
