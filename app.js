@@ -1852,16 +1852,61 @@ function openDownloads(v,view){
     }
     if(mode.k==="import"){
       var AT="https://www.audiotreasure.com/content/KJV_AT/zipfiles/";
+      if(imp&&imp.checking){
+        b.appendChild(h("p",{class:"muted",text:imp.at||"Looking at the files\u2026"}));
+        return;
+      }
       if(imp&&imp.running){
-        b.appendChild(h("p",{class:"muted",text:"Adding audio\u2026 keep this screen open."}));
+        b.appendChild(h("p",{class:"muted",text:(imp.shrink?"Making the audio smaller and adding it\u2026":"Adding audio\u2026")+" Keep this screen open with the phone plugged in. If it stops, pick the same files again and it carries on where it left off."}));
         b.appendChild(bar(imp.done,imp.total||1));
-        b.appendChild(h("p",{class:"note",text:imp.total?(imp.at?imp.at+" \u00b7 ":"")+_f("{0} of {1}",[dlCount(imp.done),dlCount(imp.total)]):(imp.at||_("Reading the files\u2026"))}));
+        var left="";
+        if(imp.t0&&imp.done>=3&&imp.total>imp.done){var sec=(Date.now()-imp.t0)/1000/imp.done*(imp.total-imp.done);left=" \u00b7 about "+(sec>=3600?Math.floor(sec/3600)+" h "+Math.round(sec%3600/60)+" min":Math.max(1,Math.round(sec/60))+" min")+" left"}
+        b.appendChild(h("p",{class:"note",text:imp.total?(imp.at?imp.at+" \u00b7 ":"")+_f("{0} of {1}",[dlCount(imp.done),dlCount(imp.total)])+left:(imp.at||_("Reading the files\u2026"))}));
+        return;
+      }
+      if(imp&&imp.plan){
+        // what was picked, and the two choices: chapters already here, and making the files smaller
+        var P=imp.plan,mbs=function(n){return n>=1e9?(n/1e9).toFixed(1)+" GB":Math.max(1,Math.round(n/1e6))+" MB"};
+        if(!P.count){imp={res:{saved:0,skipped:P.skipped,unmatched:P.unmatched||[],failed:0,error:"",inZip:P.inZip,other:P.other||[]}};paint();return}
+        var todo=imp.skip?P.count-P.saved:P.count,frac=P.count?todo/P.count:1;
+        b.appendChild(h("p",{class:"note",text:dlCount(P.count)+" chapter"+(P.count===1?"":"s")+" \u00b7 "+mbs(P.bytes)+(P.hours>=1?" \u00b7 about "+Math.round(P.hours)+" hours of audio":"")}));
+        if(P.skipped)b.appendChild(h("p",{class:"muted",text:P.skipped+" other file"+(P.skipped===1?"":"s")+" can\u2019t be matched to a chapter and will be left out"+(P.unmatched&&P.unmatched.length?": "+P.unmatched.slice(0,3).join(", ")+(P.skipped>3?"\u2026":""):"")+"."}));
+        var pair=function(on,a,bLab,set){return h("div",{style:"display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0 14px"},[
+          h("button",{class:"btn sm"+(on?"":" ghost"),type:"button","aria-pressed":on,onclick:function(){set(true);paint()}},[a]),
+          h("button",{class:"btn sm"+(on?" ghost":""),type:"button","aria-pressed":!on,onclick:function(){set(false);paint()}},[bLab])])};
+        if(P.saved){
+          b.appendChild(h("p",{class:"muted",text:dlCount(P.saved)+" of "+(P.saved===P.count?"them are":"these are")+" already saved on this device."}));
+          b.appendChild(pair(imp.skip,"Skip them","Replace them",function(v){imp.skip=v}));
+        }
+        if(P.canShrink&&P.worth&&todo){
+          var mins=P.hours*frac*60;
+          b.appendChild(h("p",{class:"muted",text:"These files are "+P.kbps+" kbps, more than one voice needs. Made smaller, they\u2019d take about "+mbs(P.smallBytes*frac)+" instead of "+mbs(P.bytes*frac)+" and sound the same. It takes longer: roughly "+Math.max(1,Math.round(mins/60))+"\u2013"+Math.max(2,Math.round(mins/25))+" minutes."}));
+          b.appendChild(pair(imp.shrink,"Make smaller","Keep as they are",function(v){imp.shrink=v}));
+        }
+        if(!todo){
+          b.appendChild(h("p",{class:"muted",text:"Everything you picked is already saved. Nothing to add."}));
+          b.appendChild(h("button",{class:"btn ghost",type:"button",onclick:function(){imp=null;paint()}},["Back"]));
+          return;
+        }
+        var go=h("button",{class:"btn",type:"button"},["Add "+dlCount(todo)+" chapter"+(todo===1?"":"s")]);
+        go.onclick=function(){
+          var fs=imp.files,opts={skipSaved:imp.skip,shrink:imp.shrink?48:0};
+          if(opts.shrink&&!(dl.prepShrink&&dl.prepShrink()))opts.shrink=0;   // set up audio inside the tap (iPhone needs that)
+          imp={running:true,done:0,total:0,at:"",t0:Date.now(),shrink:!!opts.shrink};paint();
+          var wl=null;try{if(navigator.wakeLock)navigator.wakeLock.request("screen").then(function(l){wl=l},function(){})}catch(e){}
+          var stop=function(){try{if(wl)wl.release()}catch(e){}};
+          dl.importAudio(id,fs,function(n,t,at){imp.done=n;imp.total=t;imp.at=at;if(n===0&&t)imp.t0=Date.now();if(mine()&&mode.k==="import")paint()},opts).then(function(r){stop();imp={res:r};if(isC)syncCustom();if(mine())paint()},function(e){stop();imp={res:{saved:0,skipped:0,unmatched:[],failed:0,error:_f("Something went wrong: {0}. Close the app completely and reopen it, then try again.",[_((e&&e.message)||String(e))])}};if(mine())paint()});
+        };
+        b.appendChild(h("div",{style:"display:grid;gap:8px"},[go,h("button",{class:"btn ghost",type:"button",onclick:function(){imp=null;paint()}},["Cancel"])]));
         return;
       }
       if(imp&&imp.res){
         var r=imp.res,lines=[];
         if(r.saved)lines.push(_f(r.saved===1?"Added {0} chapter. It now plays offline, at any speed.":"Added {0} chapters. They now play offline, at any speed.",[dlCount(r.saved)]));
-        else lines.push("Nothing was added.");
+        else lines.push(r.already?"Nothing new to add.":"Nothing was added.");
+        if(r.already)lines.push(dlCount(r.already)+" chapter"+(r.already===1?" was":"s were")+" already saved and left as "+(r.already===1?"it was":"they were")+".");
+        if(r.smaller)lines.push("Made smaller: "+(r.before>=1e9?(r.before/1e9).toFixed(1)+" GB":Math.round(r.before/1e6)+" MB")+" became "+(r.after>=1e9?(r.after/1e9).toFixed(1)+" GB":Math.round(r.after/1e6)+" MB")+".");
+        if(r.kept)lines.push(r.kept+" file"+(r.kept===1?" was":"s were")+" added as "+(r.kept===1?"it was":"they were")+", not smaller"+(r.keptNames&&r.keptNames.length?": "+r.keptNames.slice(0,3).join(", ")+(r.kept>3?"\u2026":""):"")+".");
         if(r.skipped)lines.push(_f(r.skipped===1?"{0} file skipped because the app couldn't tell which chapter it is.":"{0} files skipped because the app couldn't tell which chapter they are.",[dlCount(r.skipped)])+(r.unmatched.length?" "+r.unmatched.slice(0,4).join(", ")+(r.skipped>4?"\u2026":""):""));
         if(!r.saved&&!r.skipped&&!r.error){
           if(r.other&&r.other.length)lines.push("The zip has no audio files the app can use. It found: "+r.other.slice(0,4).join(", ")+(r.other.length>4?"\u2026":"")+".");
@@ -1891,15 +1936,18 @@ function openDownloads(v,view){
         h("a",{class:"btn ghost",href:AT,target:"_blank",rel:"noopener"},["One book at a time\u2026"])]));
       b.appendChild(h("p",{class:"muted",text:"2. Come back here and add it. Pick the zip, or the MP3 files if your phone already unpacked it. The app works out which chapter each file is."}));
       }
-      var fi=h("input",{type:"file",multiple:"",accept:".zip,.mp3,audio/mpeg,application/zip",style:"display:none"});
+      var fi=h("input",{type:"file",multiple:"",accept:".zip,.mp3,.m4a,audio/*,application/zip",style:"display:none"});
       fi.onchange=function(){
         // take the files out of the picker before the screen is redrawn (on iPhone a redraw can lose them)
         var fs=Array.prototype.slice.call(fi.files||[]);
         if(!fs.length){imp={res:{saved:0,skipped:0,unmatched:[],failed:0,error:"nofiles"}};if(mine())paint();return}
-        imp={running:true,done:0,total:0,at:""};paint();
         function fail(e){imp={res:{saved:0,skipped:0,unmatched:[],failed:0,error:_f("Something went wrong: {0}. Close the app completely and reopen it, then try again.",[_((e&&e.message)||String(e))])}};if(mine())paint()}
-        if(typeof dl.importAudio!=="function"){fail(new Error("this version of the app is missing the audio import"));return}
-        try{dl.importAudio(id,fs,function(n,t,at){imp.done=n;imp.total=t;imp.at=at;if(mine()&&mode.k==="import")paint()}).then(function(r){imp={res:r};if(isC)syncCustom();if(mine())paint()},fail)}catch(e){fail(e)}
+        if(typeof dl.planAudio!=="function"){fail(new Error("this version of the app is missing the audio import"));return}
+        imp={checking:true,at:""};paint();
+        try{dl.planAudio(id,fs,function(n,t,at){if(imp&&imp.checking){imp.at=at;if(mine()&&mode.k==="import")paint()}}).then(function(P){
+          if(!P){imp={res:{saved:0,skipped:0,unmatched:[],failed:0,error:"nofiles"}};if(mine())paint();return}
+          imp={plan:P,files:fs,skip:true,shrink:!!(P.canShrink&&P.worth)};if(mine())paint();
+        },fail)}catch(e){fail(e)}
       };
       b.appendChild(fi);
       b.appendChild(h("div",{style:"display:grid;gap:8px"},[

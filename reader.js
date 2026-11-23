@@ -809,8 +809,135 @@
     return x === "mp3" ? "audio/mpeg" : x === "m4a" || x === "m4b" || x === "mp4" ? "audio/mp4" : x === "aac" ? "audio/aac" :
       x === "wav" ? "audio/wav" : x === "ogg" || x === "opus" ? "audio/ogg" : x === "zip" ? "application/zip" : "audio/mpeg";
   }
-  function importAudio(id, files, onProg) {
+  /* ---------- making audio smaller while adding it ----------
+     Decodes each file, mixes it to one channel at 24 kHz (22.05 kHz for 32 kbps -- the encoder's own rate
+     conversion gives silence) and re-encodes it with lamejs (LAME, LGPL) in Web Workers. Every smaller copy is
+     decoded back and checked for sound and length; if anything is off, the original is kept. */
+  var shr = { ctx: null, workers: [], wait: {}, seq: 0 };
+  function prepShrink() {                              // call from a tap: iPhone only allows audio set up from one
+    try { if (!shr.ctx) shr.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+    if (!shr.workers.length && window.Worker) {
+      var n = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
+      for (var i = 0; i < n; i++) {
+        try {
+          var w = new Worker("audio-worker.js");
+          w.onmessage = function (e) { var cb = shr.wait[e.data.id]; delete shr.wait[e.data.id]; if (cb) cb(e.data); };
+          shr.workers.push({ w: w, busy: 0 });
+        } catch (e) {}
+      }
+    }
+    return !!(shr.ctx && shr.workers.length && window.OfflineAudioContext);
+  }
+  function shrinkRate(kbps) { return kbps <= 32 ? 22050 : 24000; }
+  function decodeAudio(buf) {
+    return new Promise(function (res, rej) {
+      var pr = shr.ctx.decodeAudioData(buf, res, function (e) { rej(e || new Error("couldn't read the audio")); });
+      if (pr && pr.catch) pr.catch(function () {});     // newer browsers also return a promise; its failure is already handled above
+    });
+  }
+  function peakOf(f) { var m = 0; for (var i = 0; i < f.length; i += 7) { var v = f[i] < 0 ? -f[i] : f[i]; if (v > m) m = v; } return m; }
+  function encodeMp3(pcm, sr, kbps) {
+    return new Promise(function (res, rej) {
+      var id = ++shr.seq, best = shr.workers.reduce(function (a, b) { return b.busy < a.busy ? b : a; });
+      best.busy++;
+      shr.wait[id] = function (r) { best.busy--; if (r.error) rej(new Error(r.error)); else res(r.mp3); };
+      best.w.postMessage({ id: id, pcm: pcm, sr: sr, kbps: kbps }, [pcm.buffer]);
+    });
+  }
+  // resolves { blob, dur } with the smaller copy, or null to keep the original (with why in .reason)
+  function shrinkAudio(bl, kbps, counted) {
+    var SR = shrinkRate(kbps);
+    return bl.arrayBuffer().then(function (buf) {
+      return decodeAudio(buf.slice(0)).then(function (ab) {
+        if (counted > 5 && ab.duration < counted * 0.9) throw new Error("only part of it could be read");
+        var len = Math.max(1, Math.ceil(ab.duration * SR)), off = new OfflineAudioContext(1, len, SR), src = off.createBufferSource();
+        src.buffer = ab; src.connect(off.destination); src.start();
+        return off.startRendering().then(function (out) {
+          var f = out.getChannelData(0), inPeak = peakOf(f), pcm = new Int16Array(f.length);
+          if (inPeak < 1e-4 && peakOf(ab.getChannelData(0)) > 1e-3) throw new Error("the sound was lost while converting");
+          for (var i = 0; i < f.length; i++) { var v = f[i]; pcm[i] = v < -1 ? -32768 : v > 1 ? 32767 : v * 32767; }
+          var secs = ab.duration;
+          return encodeMp3(pcm, SR, kbps).then(function (mp3) {
+            if (mp3.length >= bl.size * 0.9) return null;                       // not worth it: already small
+            return decodeAudio(mp3.buffer.slice(0)).then(function (back) {
+              if (Math.abs(back.duration - secs) > Math.max(2, secs * 0.03)) throw new Error("the smaller copy came out the wrong length");
+              if (inPeak > 0.01 && peakOf(back.getChannelData(0)) < inPeak * 0.1) throw new Error("the smaller copy came out silent");
+              return { blob: new Blob([mp3], { type: "audio/mpeg" }), dur: secs };
+            });
+          });
+        });
+      });
+    });
+  }
+
+  /* ---------- reading what was picked: which chapters, how big, already saved? ---------- */
+  function collectAudio(t, files, onProg, res) {
+    var jobs = [], byUrl = {};
+    function addJob(label, bc, size, get) {
+      if (!bc || bc.b < 0 || bc.b >= CH_COUNT.length || bc.c < 1 || bc.c > CH_COUNT[bc.b]) { res.skipped++; if (res.unmatched.length < 8) res.unmatched.push(label); return; }
+      var url = audioUrlFor(t, bc.b, bc.c), j = { label: label, bc: bc, size: size || 0, get: get, url: url };
+      if (byUrl[url] != null) jobs[byUrl[url]] = j; else { byUrl[url] = jobs.length; jobs.push(j); }   // the same chapter twice: the last one wins
+    }
+    return files.reduce(function (p, f) {
+      return p.then(function () {
+        if (/\.zip$/i.test(f.name) || f.type === "application/zip" || f.type === "application/x-zip-compressed") {
+          // a zip may hold the audio files directly, in folders, or as more zips (one per book, say)
+          var openZip = function (z, name, depth) {
+            if (onProg) onProg(0, 0, "Opening " + name);
+            return stuck(zipEntries(z), 30000, "reading the zip's file list").then(function (es) {
+              return es.reduce(function (pp, e) {
+                return pp.then(function () {
+                  if (/(^|\/)__MACOSX\//.test(e.name) || /\/$/.test(e.name) || /(^|\/)\./.test(e.name)) return;   // folders and Mac/hidden extras
+                  res.inZip++;
+                  var nm = e.name.split("/").pop();
+                  if (AUDIO_EXT.test(nm)) { addJob(nm, parseAudioName(e.name), e.usize, function () { return zipBlob(z, e); }); return; }
+                  if (/\.zip$/i.test(nm) && depth < 2) return zipBlob(z, e).then(function (inner) { return openZip(inner, nm, depth + 1); });
+                  if (res.other.length < 6) res.other.push(nm);
+                });
+              }, Promise.resolve());
+            });
+          };
+          return openZip(f, f.name, 0);
+        }
+        if (AUDIO_EXT.test(f.name) || /^audio\//.test(f.type)) { addJob(f.name, parseAudioName(f.name), f.size, function () { return Promise.resolve(f.type ? f : new Blob([f], { type: audioType(f.name) })); }); return; }
+        res.skipped++; if (res.unmatched.length < 8) res.unmatched.push(f.name);
+      });
+    }, Promise.resolve()).then(function () { return jobs; });
+  }
+  function kbpsOf(bl) {                                // the bit rate of an MP3, from its first audio frame
+    return bl.slice(0, 65536).arrayBuffer().then(function (buf) {
+      var u = new Uint8Array(buf), i = id3Len(u, 0);
+      for (; i < u.length - 4; i++) { var h = mp3Head(u, i); if (h && mp3Head(u, i + h.len)) return Math.round(h.len * 8 * h.sr / h.spf / 1000); }
+      return 0;
+    }).catch(function () { return 0; });
+  }
+  var lastPlan = null;
+  // look at what was picked before adding anything: { count, bytes, saved (already on this device), kbps, hours, smallBytes, canShrink }
+  function planAudio(id, files, onProg) {
     var t = TR[id], res = { saved: 0, skipped: 0, unmatched: [], failed: 0, error: "", inZip: 0, other: [] };
+    if (!t) { var cl = readCustoms().filter(function (x) { return x.id === id; })[0]; if (cl) { addCustomTr(cl); t = TR[id]; } }
+    files = Array.prototype.slice.call(files || []);
+    if (!t || !files.length) return Promise.resolve(null);
+    return Promise.all([collectAudio(t, files, onProg, res), loadAudioHave().catch(function () {})]).then(function (r) {
+      var jobs = r[0], bytes = 0, saved = 0;
+      jobs.forEach(function (j) { bytes += j.size; if (audioHave[j.url]) saved++; });
+      var sample = jobs.filter(function (j) { return /\.mp3$/i.test(j.label); })[0];
+      return (sample ? stuck(sample.get(), 30000, "reading a file").then(kbpsOf, function () { return 0; }) : Promise.resolve(0)).then(function (kbps) {
+        var secs = kbps ? bytes * 8 / (kbps * 1000) : 0;
+        lastPlan = { id: id, files: files, jobs: jobs, res: res };
+        return {
+          count: jobs.length, bytes: bytes, saved: saved, kbps: kbps, hours: secs / 3600,
+          smallBytes: secs * 48000 / 8, canShrink: !!(window.Worker && window.OfflineAudioContext && (window.AudioContext || window.webkitAudioContext)),
+          worth: kbps > 72, skipped: res.skipped, unmatched: res.unmatched, other: res.other, inZip: res.inZip
+        };
+      });
+    });
+  }
+
+  // opts: { skipSaved: leave chapters already on this device alone, shrink: kbps to make files smaller (0 = keep as they are) }
+  function importAudio(id, files, onProg, opts) {
+    opts = opts || {};
+    var t = TR[id], res = { saved: 0, skipped: 0, unmatched: [], failed: 0, error: "", inZip: 0, other: [], already: 0, smaller: 0, kept: 0, before: 0, after: 0 };
     if (!t) {                                          // an added version the reader hasn't picked up yet: take it from the list
       var cl = readCustoms().filter(function (x) { return x.id === id; })[0];
       if (cl) { addCustomTr(cl); t = TR[id]; }
@@ -820,61 +947,51 @@
     if (t.custom ? !window.indexedDB : !window.caches) { res.error = "nocache"; return Promise.resolve(res); }
     files = Array.prototype.slice.call(files || []);
     if (!files.length) { res.error = "nofiles"; return Promise.resolve(res); }
-    var ix = { len: CH_COUNT.map(function (n) { return new Array(n); }) };
-    return Promise.resolve().then(function () {
-      var jobs = [];
-      function addJob(label, bc, get) {
-        if (!bc || !ix.len[bc.b] || bc.c < 1 || bc.c > ix.len[bc.b].length) { res.skipped++; if (res.unmatched.length < 8) res.unmatched.push(label); return; }
-        jobs.push({ label: label, bc: bc, get: get });
-      }
-      return files.reduce(function (p, f) {
-        return p.then(function () {
-          if (/\.zip$/i.test(f.name) || f.type === "application/zip" || f.type === "application/x-zip-compressed") {
-            // a zip may hold the audio files directly, in folders, or as more zips (one per book, say)
-            var openZip = function (z, name, depth) {
-              if (onProg) onProg(0, 0, "Opening " + name);
-              return stuck(zipEntries(z), 30000, "reading the zip's file list").then(function (es) {
-                return es.reduce(function (pp, e) {
-                  return pp.then(function () {
-                    if (/(^|\/)__MACOSX\//.test(e.name) || /\/$/.test(e.name) || /(^|\/)\./.test(e.name)) return;   // folders and Mac/hidden extras
-                    res.inZip++;
-                    var nm = e.name.split("/").pop();
-                    if (AUDIO_EXT.test(nm)) { addJob(nm, parseAudioName(e.name), function () { return zipBlob(z, e); }); return; }
-                    if (/\.zip$/i.test(nm) && depth < 2) return zipBlob(z, e).then(function (inner) { return openZip(inner, nm, depth + 1); });
-                    if (res.other.length < 6) res.other.push(nm);
-                  });
-                }, Promise.resolve());
+    var shrink = opts.shrink && prepShrink() ? opts.shrink : 0;
+    var plan = lastPlan && lastPlan.id === id && lastPlan.files.length === files.length && lastPlan.files.every(function (f, i) { return f === files[i]; }) ? lastPlan : null;
+    if (plan) { res.skipped = plan.res.skipped; res.unmatched = plan.res.unmatched; res.inZip = plan.res.inZip; res.other = plan.res.other; }
+    return (plan ? Promise.resolve(plan.jobs) : collectAudio(t, files, onProg, res)).then(function (jobs) {
+      return (opts.skipSaved ? loadAudioHave().catch(function () {}) : Promise.resolve()).then(function () {
+        if (opts.skipSaved) jobs = jobs.filter(function (j) { if (audioHave[j.url]) { res.already++; return false; } return true; });
+        var n = 0, next = 0, conc = shrink ? Math.min(3, shr.workers.length + 1) : 1;
+        function one(j) {
+          if (onProg) onProg(n, jobs.length, label(j.bc.b, j.bc.c));
+          return stuck(j.get(), 60000, "unpacking " + j.label).then(function (bl) {
+            if (!bl || bl.size < 2000) throw new Error("empty");
+            if (!bl.type) bl = new Blob([bl], { type: audioType(j.label) });
+            res.before += bl.size;
+            return checkAudio(bl).then(function (k) {
+              if (k.changed) res.fixed = (res.fixed || 0) + 1;
+              if (!shrink) return k;
+              return shrinkAudio(k.blob, shrink, k.dur).then(function (sm) {
+                if (sm) { res.smaller++; return { blob: sm.blob, dur: sm.dur || k.dur }; }
+                return k;
+              }, function (e) {
+                res.kept++; if ((res.keptNames = res.keptNames || []).length < 8) res.keptNames.push(j.label + " (" + ((e && e.message) || "couldn't be made smaller") + ")");
+                return k;
               });
-            };
-            return openZip(f, f.name, 0);
-          }
-          if (AUDIO_EXT.test(f.name) || /^audio\//.test(f.type)) { addJob(f.name, parseAudioName(f.name), function () { return Promise.resolve(f.type ? f : new Blob([f], { type: audioType(f.name) })); }); return; }
-          res.skipped++; if (res.unmatched.length < 8) res.unmatched.push(f.name);
-        });
-      }, Promise.resolve()).then(function () {
-        var n = 0;
-        return jobs.reduce(function (p, j) {
-          return p.then(function () {
-            if (onProg) onProg(n, jobs.length, label(j.bc.b, j.bc.c));
-            return stuck(j.get(), 60000, "unpacking " + j.label).then(function (bl) {
-              if (!bl || bl.size < 2000) throw new Error("empty");
-              var url = audioUrlFor(t, j.bc.b, j.bc.c);
-              if (!bl.type) bl = new Blob([bl], { type: "audio/mpeg" });
-              return checkAudio(bl).then(function (k) {
-                if (k.changed) res.fixed = (res.fixed || 0) + 1;
-                if (t.custom) return tmo(adb("readwrite", function (st) { return st.put({ b: k.blob, d: k.dur || 0 }, url); }), 60000, "audio database");
-                return cacheStrict(AUDIO_CACHE, url, audioResp(k.blob, k.dur));
-              }).then(function () { audioHave[url] = true; res.saved++; });
-            }).catch(function (e) {
-              var m = String(e && e.name || "") + String(e && e.message || "");
-              if (/Quota/i.test(m)) { res.error = "full"; throw e; }
-              res.failed++;
-              if ((res.failedNames = res.failedNames || []).length < 12) res.failedNames.push(j.label + (m === "Errorempty" || m === "empty" ? " (empty file)" : /stuck|took too long|unpacking/i.test(m) ? " (took too long)" : ""));
-            }).then(function () { n++; if (n % 20 === 0) dlEmit(); });
-          });
-        }, Promise.resolve()).then(function () { if (onProg) onProg(jobs.length, jobs.length, ""); });
+            }).then(function (k) {
+              res.after += k.blob.size;
+              if (t.custom) return tmo(adb("readwrite", function (st) { return st.put({ b: k.blob, d: k.dur || 0 }, j.url); }), 60000, "audio database");
+              return cacheStrict(AUDIO_CACHE, j.url, audioResp(k.blob, k.dur));
+            }).then(function () { audioHave[j.url] = true; res.saved++; });
+          }).catch(function (e) {
+            var m = String(e && e.name || "") + String(e && e.message || "");
+            if (/Quota/i.test(m)) { res.error = "full"; throw e; }
+            res.failed++;
+            if ((res.failedNames = res.failedNames || []).length < 12) res.failedNames.push(j.label + (m === "Errorempty" || m === "empty" ? " (empty file)" : /stuck|took too long|unpacking|didn't answer/i.test(m) ? " (took too long)" : ""));
+          }).then(function () { n++; if (n % 20 === 0) dlEmit(); });
+        }
+        function lane() {                               // each lane takes the next file until none are left
+          if (next >= jobs.length || res.error === "full") return Promise.resolve();
+          var j = jobs[next++];
+          return one(j).then(lane);
+        }
+        var lanes = []; for (var i = 0; i < conc; i++) lanes.push(lane());
+        return Promise.all(lanes).then(function () { if (onProg) onProg(jobs.length, jobs.length, ""); });
       });
     }).catch(function (e) { if (!res.error) res.error = (e && e.message) || "error"; }).then(function () {
+      lastPlan = null;
       if (res.saved && t.custom && !t.audio) setCustomAudio(id, true);   // the version now has a recording, so the player can show
       dlEmit(); return res;
     });
@@ -2035,7 +2152,7 @@
 
   window.BBReader = {
     dl: {
-      importAudio: importAudio, parseAudioName: parseAudioName, quick: dlQuick, status: dlStatus, start: dlStart, pause: dlPause, resume: dlResume, remove: dlRemove,
+      importAudio: importAudio, planAudio: planAudio, prepShrink: prepShrink, parseAudioName: parseAudioName, quick: dlQuick, status: dlStatus, start: dlStart, pause: dlPause, resume: dlResume, remove: dlRemove,
       job: function (id, kind) { return dlJobs[id + "|" + kind] || null; },
       on: function (fn) { dlSubs.push(fn); }, off: function (fn) { var i = dlSubs.indexOf(fn); if (i >= 0) dlSubs.splice(i, 1); },
       supported: function () { return !!window.caches; }

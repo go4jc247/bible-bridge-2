@@ -177,7 +177,8 @@ ul{padding-left:20px;margin:6px 0} li{margin:3px 0}
   // play the shrunk file back (silently, by decoding it) to be sure it has sound and the right length
   function verify(mp3, secs, inPeak) {
     return new Promise(function (res, rej) {
-      actx.decodeAudioData(mp3.buffer.slice(mp3.byteOffset, mp3.byteOffset + mp3.byteLength), res, function () { rej(new Error("the smaller copy couldn't be read back")); });
+      var pr = actx.decodeAudioData(mp3.buffer.slice(mp3.byteOffset, mp3.byteOffset + mp3.byteLength), res, function () { rej(new Error("the smaller copy couldn't be read back")); });
+      if (pr && pr.catch) pr.catch(function () {});
     }).then(function (ab) {
       if (Math.abs(ab.duration - secs) > Math.max(2, secs * 0.03)) throw new Error("the smaller copy came out the wrong length");
       if (inPeak > 0.01 && peakOf(ab.getChannelData(0)) < inPeak * 0.1) throw new Error("the smaller copy came out silent");
@@ -190,7 +191,8 @@ ul{padding-left:20px;margin:6px 0} li{margin:3px 0}
       var isMp3 = /\.mp3$/i.test(file.name), counted = 0, src = buf;
       if (isMp3) { var r = mp3Scan(buf); counted = r.dur; if (r.fixed) src = r.fixed; }
       return new Promise(function (res, rej) {
-        actx.decodeAudioData(src.slice(0), res, function (e) { rej(e || new Error("couldn't read the audio")); });
+        var pr = actx.decodeAudioData(src.slice(0), res, function (e) { rej(e || new Error("couldn't read the audio")); });
+        if (pr && pr.catch) pr.catch(function () {});
       }).then(function (ab) {
         if (counted > 5 && ab.duration < counted * 0.9) throw new Error("only " + Math.round(ab.duration) + " of " + Math.round(counted) + " seconds could be read");
         var len = Math.max(1, Math.ceil(ab.duration * SR)), off = new OfflineAudioContext(1, len, SR), s = off.createBufferSource();
