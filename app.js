@@ -1803,15 +1803,18 @@ function openDownloads(v,view){
       BBReader.storageReport(v.app).then(function(rep){
         if(!mine()||mode.k!=="diag")return;
         b.innerHTML="";
-        var f=rep.audioFolders||{},here=f[v.app]?f[v.app].n:0,names={};
+        var f=rep.audioFolders||{},here=f[v.app]?f[v.app].n:0,old=f[v.app]?f[v.app].old:0,names={};
         (rep.list||[]).forEach(function(c){names[c.id]=c.short});
         var tx=typeof rep.thisTextBytes==="number"?(rep.thisTextBytes?"Saved ("+(Math.round(rep.thisTextBytes/104857.6)/10)+" MB)":"Not on this phone"):String(rep.thisTextBytes);
         b.appendChild(h("p",{class:"note",text:"Text: "+tx}));
         b.appendChild(h("p",{class:"note",text:"Audio for "+(names[v.app]||v.app)+": "+here+" file"+(here===1?"":"s")}));
+        if(old)b.appendChild(h("p",{class:"note",text:old+" more file"+(old===1?" is":"s are")+" still in the older storage. The app moves them over by itself while it\u2019s open."}));
+        if(rep.oldAudioStore==="not answering")b.appendChild(h("p",{class:"note",text:"The older audio storage isn\u2019t answering right now. Anything saved there can\u2019t be moved over until it does. Restarting the phone can help."}));
         Object.keys(f).forEach(function(id){
-          if(id===v.app||!f[id].n)return;
+          if(id.charAt(0)==="_"||id===v.app||!(f[id].n||f[id].old))return;
           var lab=names[id]?names[id]+" (another added version)":"\u201c"+id+"\u201d (no version uses these now)";
-          b.appendChild(h("p",{class:"note",text:"Also saved: "+f[id].n+" audio file"+(f[id].n===1?"":"s")+" under "+lab+"."}));
+          var cnt=f[id].n+f[id].old;
+          b.appendChild(h("p",{class:"note",text:"Also saved: "+cnt+" audio file"+(cnt===1?"":"s")+" under "+lab+"."}));
           if(!names[id])b.appendChild(h("button",{class:"btn sm",type:"button",onclick:function(){
             this.disabled=true;this.textContent="Moving\u2026";
             BBReader.adoptAudio(id,v.app).then(function(n){syncCustom();toast(n+" audio files now belong to "+(names[v.app]||v.app));mode={k:"main"};refresh()});

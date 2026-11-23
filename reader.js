@@ -85,6 +85,30 @@
     });
   }
 
+  /* audio for versions you added lives in its own database, one entry per chapter (key: the chapter's audio address,
+     value: { b: the file, d: its length in seconds }). Fetching one chapter never needs a list of everything. */
+  function adb(mode, fn) {
+    return new Promise(function (res, rej) {
+      var q = indexedDB.open("bbaudio", 1);
+      q.onupgradeneeded = function () { q.result.createObjectStore("f"); };
+      q.onerror = function () { rej(q.error); };
+      q.onblocked = function () { rej(new Error("audio storage busy")); };
+      q.onsuccess = function () {
+        var db = q.result, tx = db.transaction("f", mode), r = fn(tx.objectStore("f"));
+        tx.oncomplete = function () { var v = r && r.result; db.close(); res(v); };
+        tx.onerror = tx.onabort = function () { var e = tx.error; db.close(); rej(e || new Error("audio storage")); };
+      };
+    });
+  }
+  // a storage call that hasn't answered in time counts as failed, so the screen never freezes waiting on it
+  function tmo(p, ms, what) {
+    return new Promise(function (res, rej) {
+      var t = setTimeout(function () { rej(new Error((what || "storage") + " didn't answer")); }, ms);
+      p.then(function (v) { clearTimeout(t); res(v); }, function (e) { clearTimeout(t); rej(e); });
+    });
+  }
+  function adbKeys(lo, hi) { return adb("readonly", function (st) { return st.getAllKeys(lo != null ? IDBKeyRange.bound(lo, hi) : undefined); }); }
+
   var NAMES = {
     en: ["Genesis","Exodus","Leviticus","Numbers","Deuteronomy","Joshua","Judges","Ruth","1 Samuel","2 Samuel",
       "1 Kings","2 Kings","1 Chronicles","2 Chronicles","Ezra","Nehemiah","Esther","Job","Psalms","Proverbs",
@@ -313,23 +337,30 @@
   var dlJobs = {}, dlSubs = [];
 
   var audioScanned = false;                          // true once the startup look through saved audio has finished
-  var audioScanP = null;
+  var audioScanP = null, cacheStuck = false;          // cacheStuck: the older audio store (Cache Storage) isn't answering
   function loadAudioHave() {
     // one look at a time; on a busy phone the first look can fail, so try again before giving up,
     // and if it still fails say so -- never treat a failed look as "no audio saved"
     if (audioScanP) return audioScanP;
-    if (!window.caches) return Promise.resolve();
-    var tries = 0;
-    function look() {
-      return caches.open(AUDIO_CACHE).then(function (c) { return c.keys(); }).then(function (ks) {
-        for (var i = 0; i < ks.length; i++) audioHave[ks[i].url] = true;
-        audioScanned = true;
-      }, function (e) {
-        if (++tries < 4) return new Promise(function (r) { setTimeout(r, 700 * tries); }).then(look);
-        audioScanned = true; throw e || new Error("couldn't read saved audio");
-      });
+    var dbOk = false, tries = 0;
+    function lookDb() {
+      if (!window.indexedDB) return Promise.resolve();
+      return tmo(adbKeys(), 10000, "audio database").then(function (ks) {
+        for (var i = 0; i < ks.length; i++) audioHave[ks[i]] = true;
+        dbOk = true;
+      }, function () { if (++tries < 3) return new Promise(function (r) { setTimeout(r, 600 * tries); }).then(lookDb); });
     }
-    audioScanP = look().then(function () { audioScanP = null; }, function (e) { audioScanP = null; throw e; });
+    function lookCache() {
+      if (!window.caches) { cacheStuck = false; return Promise.resolve(); }
+      return tmo(caches.open(AUDIO_CACHE).then(function (c) { return c.keys(); }), 6000, "saved audio").then(function (ks) {
+        for (var i = 0; i < ks.length; i++) audioHave[ks[i].url] = true;
+        cacheStuck = false;
+      }, function () { cacheStuck = true; });
+    }
+    audioScanP = Promise.all([lookDb(), lookCache()]).then(function () {
+      audioScanned = true; audioScanP = null;
+      if (!dbOk && cacheStuck) throw new Error("couldn't read saved audio");
+    }, function (e) { audioScanned = true; audioScanP = null; throw e; });
     return audioScanP;
   }
   /* ---------- MP3 length check ----------
@@ -413,34 +444,58 @@
     var u = audioUrlFor(tr, b, c), n = el._sq = (el._sq || 0) + 1;
     if (el._bu) { try { URL.revokeObjectURL(el._bu); } catch (e) {} el._bu = null; }
     el._estD = 0; el._none = false;
-    var cust = !!(tr && tr.custom), ca0 = null;
-    if (!u || !window.caches || (!audioHave[u] && !cust && audioScanned)) { el.src = u; if (after) after(); return; }
-    caches.open(AUDIO_CACHE).then(function (ca) { ca0 = ca; return ca.match(new Request(u)); })
-      .then(function (r) {
-        if (!r) return null;
-        audioHave[u] = true;
-        var known = parseFloat(r.headers.get("X-BB-Len") || ""), chk = r.headers.get("X-BB-Chk") === "2";
-        return r.blob().then(function (bl) {
-          if (!cust || (chk && known > 0)) return { blob: bl, dur: known > 0 ? known : 0 };
-          // an added version's file saved before this check existed: check it now, once, and keep the result
-          return checkAudio(bl).then(function (k) {
-            if (k.dur > 0 && ca0) ca0.put(new Request(u), audioResp(k.blob, k.dur)).catch(function () {});
-            return k;
-          });
-        });
-      })
-      .catch(function () { return null; })
-      .then(function (k) {
-        if (el._sq !== n) return;
-        if (k && k.blob) { el._estD = k.dur || 0; el._bu = URL.createObjectURL(k.blob); el.src = el._bu; }
-        else if (cust) { delete audioHave[u]; el._none = true; el.removeAttribute("src"); try { el.load(); } catch (e) {} if (el === A && playing) setMsg(T().failNone); }   // an added version has no copy online
-        else { delete audioHave[u]; el.src = u; }
-        if (after) after();
-      });
+    var cust = !!(tr && tr.custom);
+    function use(k) {
+      if (el._sq !== n) return;
+      if (k && k.blob) { el._estD = k.dur || 0; el._bu = URL.createObjectURL(k.blob); el.src = el._bu; audioHave[u] = true; }
+      else if (cust) { delete audioHave[u]; el._none = true; el.removeAttribute("src"); try { el.load(); } catch (e) {} if (el === A && playing) setMsg(T().failNone); }   // an added version has no copy online
+      else { el.src = u; }                               // not saved here (or storage not answering): stream it
+      if (after) after();
+    }
+    if (!u) { el.src = u; if (after) after(); return; }
+    if (cust) {
+      tmo(adb("readonly", function (st) { return st.get(u); }), 6000, "audio database").catch(function () { return null; }).then(function (v) {
+        if (v && v.b) return { blob: v.b, dur: v.d || 0 };
+        return oldCacheFile(u, true);                   // saved before the database existed: move it over now
+      }).catch(function () { return null; }).then(use);
+      return;
+    }
+    if (!window.caches || (!audioHave[u] && audioScanned) || cacheStuck) { use(null); return; }
+    tmo(caches.open(AUDIO_CACHE).then(function (ca) { return ca.match(new Request(u)); }).then(function (r) {
+      return r ? r.blob().then(function (bl) { var k = parseFloat(r.headers.get("X-BB-Len") || ""); return { blob: bl, dur: k > 0 ? k : 0 }; }) : null;
+    }), 4000, "saved audio").catch(function () { return null; }).then(use);
   }
+  // one file from the older audio store (Cache Storage), with a time limit. move: also put it in the database and drop the old copy
+  function oldCacheFile(u, move) {
+    if (!window.caches || cacheStuck) return Promise.resolve(null);
+    var ca0 = null;
+    return tmo(caches.open(AUDIO_CACHE).then(function (ca) { ca0 = ca; return ca.match(new Request(u)); }), 5000, "saved audio").then(function (r) {
+      if (!r) return null;
+      var known = parseFloat(r.headers.get("X-BB-Len") || ""), chk = r.headers.get("X-BB-Chk") === "2";
+      return r.blob().then(function (bl) {
+        return (chk && known > 0 ? Promise.resolve({ blob: bl, dur: known }) : checkAudio(bl)).then(function (k) {
+          if (!move || !window.indexedDB) return k;
+          return adb("readwrite", function (st) { return st.put({ b: k.blob, d: k.dur || 0 }, u); }).then(function () {
+            return ca0.delete(new Request(u)).catch(function () {});
+          }).then(function () { audioHave[u] = true; return k; }, function () { return k; });
+        });
+      });
+    }).catch(function () { return null; });
+  }
+
   function dlEmit() { for (var i = 0; i < dlSubs.length; i++) { try { dlSubs[i](); } catch (e) {} } }
   function cacheStrict(name, key, body) {            // like cachePut, but says if it did not fit
     return caches.open(name).then(function (c) { return c.put(new Request(key), body); });
+  }
+  function removeCustomAudio(t) {
+    var base = audioBase(t), id = t.id;
+    var fromDb = window.indexedDB ? tmo(adb("readwrite", function (st) { return st.delete(IDBKeyRange.bound(base, base + "\uffff")); }), 30000, "audio database").catch(function () {}) : Promise.resolve();
+    var fromOld = window.caches && !cacheStuck ? tmo(caches.open(AUDIO_CACHE).then(function (c) {
+      return c.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return k.url.indexOf("/bbcustom/" + id + "/") >= 0; }).map(function (k) { return c.delete(k); })); });
+    }), 20000, "saved audio").catch(function () {}) : Promise.resolve();
+    return Promise.all([fromDb, fromOld]).then(function () {
+      for (var k in audioHave) if (k.indexOf(base) === 0 || k.indexOf("/bbcustom/" + id + "/") >= 0) delete audioHave[k];
+    });
   }
   function audioBase(t) {                            // the start of every audio address that belongs to this translation
     if (t.custom) return new URL("bbcustom/" + t.id + "/", location.href).href;
@@ -465,8 +520,11 @@
   }
   function haveAudio(t) {
     var out = {};
-    if (!window.caches || !(t.audio || t.custom)) return Promise.resolve(out);
-    return loadAudioHave().then(function () { return audioHave; });   // a failed look rejects: the screen then says it couldn't check
+    if (!(t.audio || t.custom)) return Promise.resolve(out);
+    return loadAudioHave().then(function () {
+      if (cacheStuck && !t.custom) throw new Error("saved audio isn't answering");   // the screen then says it couldn't check, not "0"
+      return audioHave;
+    });
   }
   // how much is saved, without needing the book index (for the little icons in the version list)
   function dlQuick(id) {
@@ -590,6 +648,7 @@
     if (TR[id] && TR[id].custom && kind === "text") return removeVersion(id);
     var key = id + "|" + kind, j = dlJobs[key];
     if (j) { j.paused = true; j.running = false; delete dlJobs[key]; }
+    if (TR[id] && TR[id].custom && kind === "audio") return removeCustomAudio(TR[id]).then(function () { setCustomAudio(id, false); dlEmit(); });
     if (!window.caches) return Promise.resolve();
     if (kind === "text") {
       var re = new RegExp("bible/" + id + "\\.bbt\\?c=");
@@ -598,9 +657,10 @@
       }).then(function () { dlEmit(); });
     }
     var t = TR[id], base = audioBase(t);
+    if (t.custom) return removeCustomAudio(t).then(function () { setCustomAudio(id, false); dlEmit(); });
     return caches.open(AUDIO_CACHE).then(function (c) {
       return c.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return k.url.indexOf(base) === 0; }).map(function (k) { delete audioHave[k.url]; return c.delete(k); })); });
-    }).then(function () { if (t.custom) setCustomAudio(id, false); dlEmit(); });
+    }).then(function () { dlEmit(); });
   }
 
   /* ---------- audio you saved yourself: pick the files (or a zip of them) and keep every chapter on this device ---------- */
@@ -757,7 +817,7 @@
     }
     if (!t) { res.error = "noversion"; return Promise.resolve(res); }
     if ((!t.audio && !t.custom) || t.audio === "rst") { res.error = "noimport"; return Promise.resolve(res); }
-    if (!window.caches) { res.error = "nocache"; return Promise.resolve(res); }
+    if (t.custom ? !window.indexedDB : !window.caches) { res.error = "nocache"; return Promise.resolve(res); }
     files = Array.prototype.slice.call(files || []);
     if (!files.length) { res.error = "nofiles"; return Promise.resolve(res); }
     var ix = { len: CH_COUNT.map(function (n) { return new Array(n); }) };
@@ -802,6 +862,7 @@
               if (!bl.type) bl = new Blob([bl], { type: "audio/mpeg" });
               return checkAudio(bl).then(function (k) {
                 if (k.changed) res.fixed = (res.fixed || 0) + 1;
+                if (t.custom) return tmo(adb("readwrite", function (st) { return st.put({ b: k.blob, d: k.dur || 0 }, url); }), 60000, "audio database");
                 return cacheStrict(AUDIO_CACHE, url, audioResp(k.blob, k.dur));
               }).then(function () { audioHave[url] = true; res.saved++; });
             }).catch(function (e) {
@@ -820,68 +881,84 @@
   }
 
   /* ---------- finding and checking an added version's audio ---------- */
-  // every saved file of an added version is stored as ".../bbcustom/<version id>/<file>.mp3"
+  // saved files of added versions, by version id: { n: in the database, old: still in the older store, elsewhere: saved under another address }
+  var FOLDER = /\/bbcustom\/([^\/]+)\/([^\/?#]+)$/;
   function customAudioFolders() {
-    if (!window.caches) return Promise.resolve({});
-    return caches.open(AUDIO_CACHE).then(function (c) { return c.keys(); }).then(function (ks) {
-      var f = {};
+    var f = {}, oldState = "ok";
+    function slot(id) { return f[id] || (f[id] = { n: 0, old: 0, elsewhere: 0 }); }
+    var fromDb = window.indexedDB ? tmo(adbKeys(), 10000, "audio database").then(function (ks) {
       ks.forEach(function (k) {
-        var m = /\/bbcustom\/([^\/]+)\/([^\/?#]+)$/.exec(k.url);
-        if (!m) return;
-        var x = f[m[1]] || (f[m[1]] = { n: 0, elsewhere: 0 });
-        x.n++;
-        if (TR[m[1]] && TR[m[1]].custom && k.url.indexOf(audioBase(TR[m[1]])) !== 0) x.elsewhere++;
+        var m = FOLDER.exec(k); if (!m) return;
+        var x = slot(m[1]); x.n++;
+        if (TR[m[1]] && TR[m[1]].custom && k.indexOf(audioBase(TR[m[1]])) !== 0) x.elsewhere++;
       });
-      return f;
-    }).catch(function () { return {}; });
+    }).catch(function () { f._dbError = true; }) : Promise.resolve();
+    var fromOld = window.caches ? tmo(caches.open(AUDIO_CACHE).then(function (c) { return c.keys(); }), 6000, "saved audio").then(function (ks) {
+      ks.forEach(function (k) { var m = FOLDER.exec(k.url); if (m) slot(m[1]).old++; });
+    }, function () { oldState = "not answering"; }) : Promise.resolve();
+    return Promise.all([fromDb, fromOld]).then(function () { f._old = oldState; return f; });
   }
-  // move saved audio files from one place to an added version (another folder name, or saved under another address)
+  // move saved audio of folder fromId (in the database under another address, or still in the older store) to added version toId
   function adoptAudio(fromId, toId) {
     var t = TR[toId];
-    if (!t || !t.custom || !window.caches) return Promise.resolve(0);
+    if (!t || !t.custom || !window.indexedDB) return Promise.resolve(0);
     var base = audioBase(t), moved = 0;
-    return caches.open(AUDIO_CACHE).then(function (c) {
-      return c.keys().then(function (ks) {
-        var mine = ks.filter(function (k) { var m = /\/bbcustom\/([^\/]+)\/([^\/?#]+)$/.exec(k.url); return m && m[1] === fromId && k.url.indexOf(base) !== 0; });
-        return mine.reduce(function (p, k) {
+    var inDb = tmo(adbKeys(), 10000, "audio database").then(function (ks) {
+      var mine = ks.filter(function (k) { var m = FOLDER.exec(k); return m && m[1] === fromId && k.indexOf(base) !== 0; });
+      return mine.reduce(function (p, k) {
+        return p.then(function () {
+          return adb("readonly", function (st) { return st.get(k); }).then(function (v) {
+            if (!v) return;
+            var to = base + k.split("/").pop();
+            return adb("readwrite", function (st) { st.put(v, to); return st.delete(k); }).then(function () { delete audioHave[k]; audioHave[to] = true; moved++; });
+          });
+        });
+      }, Promise.resolve());
+    }).catch(function () {});
+    return inDb.then(function () {
+      if (!window.caches || cacheStuck) return;
+      return tmo(caches.open(AUDIO_CACHE).then(function (c) { return c.keys(); }), 6000, "saved audio").then(function (ks) {
+        var old = ks.filter(function (k) { var m = FOLDER.exec(k.url); return m && m[1] === fromId; });
+        return old.reduce(function (p, k) {
           return p.then(function () {
-            return c.match(k).then(function (r) {
+            var to = base + k.url.split("/").pop();
+            return tmo(caches.open(AUDIO_CACHE).then(function (c) { return c.match(k); }), 8000, "saved audio").then(function (r) {
               if (!r) return;
-              var file = k.url.split("/").pop(), to = base + file;
-              return c.match(new Request(to)).then(function (have) {
-                return (have ? Promise.resolve() : c.put(new Request(to), r)).then(function () { return c.delete(k); }).then(function () { delete audioHave[k.url]; audioHave[to] = true; moved++; });
-              });
+              var known = parseFloat(r.headers.get("X-BB-Len") || ""), chk = r.headers.get("X-BB-Chk") === "2";
+              return r.blob().then(function (bl) { return chk && known > 0 ? { blob: bl, dur: known } : checkAudio(bl); }).then(function (k2) {
+                return adb("readwrite", function (st) { return st.put({ b: k2.blob, d: k2.dur || 0 }, to); });
+              }).then(function () {
+                return caches.open(AUDIO_CACHE).then(function (c) { return c.delete(k); }).catch(function () {});
+              }).then(function () { delete audioHave[k.url]; audioHave[to] = true; moved++; if (moved % 25 === 0) dlEmit(); });
             });
           });
         }, Promise.resolve());
       });
-    }).then(function () {
+    }).catch(function () {}).then(function () {
       if (moved && !t.audio) setCustomAudio(toId, true);
       dlEmit(); return moved;
     });
   }
-  // at start: audio of an added version that was saved under a different address is moved to where it is looked for
+  // at start, in the background: move added versions' audio out of the older store into the database
   function healAudio() {
     return customAudioFolders().then(function (f) {
-      return Object.keys(f).reduce(function (p, id) {
-        return p.then(function () { if (f[id].elsewhere) return adoptAudio(id, id); });
-      }, Promise.resolve());
+      return Object.keys(f).filter(function (id) { return id.charAt(0) !== "_" && TR[id] && TR[id].custom && (f[id].old || f[id].elsewhere); })
+        .reduce(function (p, id) { return p.then(function () { return adoptAudio(id, id); }); }, Promise.resolve());
     }).catch(function () {});
   }
   // everything this device holds for added versions, in words, for "Storage check"
   function storageReport(id) {
     var t = TR[id], rep = { version: id, page: location.href, audioPlace: t && t.custom ? audioBase(t) : "", list: readCustoms() };
     return Promise.all([
-      window.indexedDB ? idbDo("readonly", function (st) { return st.getAllKeys ? st.getAllKeys() : null; }).catch(function (e) { return "error: " + (e && e.message); }) : Promise.resolve("no IndexedDB"),
-      window.indexedDB ? idbDo("readonly", function (st) { return st.get(id); }).then(function (b) { return b ? b.byteLength : 0; }).catch(function (e) { return "error: " + (e && e.message); }) : Promise.resolve(0),
+      window.indexedDB ? tmo(idbDo("readonly", function (st) { return st.getAllKeys ? st.getAllKeys() : null; }), 8000, "text storage").catch(function (e) { return "error: " + (e && e.message); }) : Promise.resolve("no IndexedDB"),
+      window.indexedDB ? tmo(idbDo("readonly", function (st) { return st.get(id); }), 8000, "text storage").then(function (b) { return b ? b.byteLength : 0; }).catch(function (e) { return "error: " + (e && e.message); }) : Promise.resolve(0),
       customAudioFolders(),
-      window.caches ? caches.keys().catch(function () { return []; }) : Promise.resolve([]),
-      navigator.storage && navigator.storage.estimate ? navigator.storage.estimate().catch(function () { return null; }) : Promise.resolve(null),
-      navigator.storage && navigator.storage.persisted ? navigator.storage.persisted().catch(function () { return null; }) : Promise.resolve(null),
-      window.caches ? caches.open(AUDIO_CACHE).then(function (c) { return c.keys(); }).then(function (ks) { return ks.length; }).catch(function () { return -1; }) : Promise.resolve(-1)
+      window.caches ? tmo(caches.keys(), 5000, "storage").catch(function () { return ["not answering"]; }) : Promise.resolve([]),
+      navigator.storage && navigator.storage.estimate ? tmo(navigator.storage.estimate(), 5000).catch(function () { return null; }) : Promise.resolve(null),
+      navigator.storage && navigator.storage.persisted ? tmo(navigator.storage.persisted(), 5000).catch(function () { return null; }) : Promise.resolve(null)
     ]).then(function (r) {
       rep.textsStored = r[0]; rep.thisTextBytes = r[1]; rep.audioFolders = r[2]; rep.caches = r[3];
-      rep.allAudioFiles = r[6]; rep.kept = r[5];
+      rep.oldAudioStore = r[2]._old; rep.kept = r[5];
       if (r[4]) { rep.usedMB = Math.round((r[4].usage || 0) / 1048576); rep.allowedMB = Math.round((r[4].quota || 0) / 1048576); }
       return rep;
     });
@@ -932,11 +1009,7 @@
       writeCustoms(readCustoms().filter(function (x) { return x.id !== id; }));
       dlEmit();
     };
-    var base = audioBase(t);
-    var rmAudio = window.caches ? caches.open(AUDIO_CACHE).then(function (c) {
-      return c.keys().then(function (ks) { return Promise.all(ks.filter(function (k) { return k.url.indexOf(base) === 0; }).map(function (k) { delete audioHave[k.url]; return c.delete(k); })); });
-    }).catch(function () {}) : Promise.resolve();
-    return rmAudio.then(function () { return idbDo("readwrite", function (st) { return st.delete(id); }); }).then(done, done);
+    return removeCustomAudio(t).then(function () { return idbDo("readwrite", function (st) { return st.delete(id); }); }).then(done, done);
   }
 
   /* ---------- state ---------- */
