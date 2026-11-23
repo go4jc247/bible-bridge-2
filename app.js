@@ -1759,7 +1759,9 @@ function openDownloads(v,view){
       if(BBReader.customMissing&&BBReader.customMissing(v.app))box.appendChild(h("p",{class:"note",text:"The text file for this version isn\u2019t on this device any more. Tap Replace text and pick the .bbt file again. Your audio is kept."}));
       row.appendChild(h("button",{class:"btn sm",type:"button",onclick:function(){mode={k:"retext"};paint()}},["Replace text\u2026"]));
       row.appendChild(h("button",{class:"btn sm ghost",type:"button",onclick:function(){mode={k:"rm",kind:"text"};paint()}},["Remove this version"]));
-      box.appendChild(row);return box;
+      box.appendChild(row);
+      box.appendChild(h("button",{type:"button",style:"font:inherit;font-size:.9em;color:inherit;opacity:.75;background:none;border:0;padding:8px 0 0;text-decoration:underline;cursor:pointer",onclick:function(){mode={k:"diag"};paint()}},["Storage check"]));
+      return box;
     }
     if(k==="audio"&&manual){
       box.appendChild(h("p",{class:"note",text:isC?"Audio for this version comes from your own files. Add them here and they stay on this device.":"This audio can't be downloaded by the app itself. You save it from AudioTreasure's site, then add it here."}));
@@ -1787,6 +1789,35 @@ function openDownloads(v,view){
       b.appendChild(h("div",{style:"display:grid;gap:8px;margin-top:12px"},[
         h("button",{class:"btn",type:"button",onclick:function(){var m=mode;mode={k:"main",warned:true};dl.start(id,m.kind,m.pairs);paint()}},["Start download"]),
         h("button",{class:"btn ghost",type:"button",onclick:function(){mode={k:"main"};paint()}},["Cancel"])]));
+      return;
+    }
+    if(mode.k==="diag"){
+      // what this phone really holds for added versions, with a way to send it and to reattach audio filed elsewhere
+      b.appendChild(h("p",{class:"muted",text:"Checking what this phone has saved\u2026"}));
+      BBReader.storageReport(v.app).then(function(rep){
+        if(!mine()||mode.k!=="diag")return;
+        b.innerHTML="";
+        var f=rep.audioFolders||{},here=f[v.app]?f[v.app].n:0,names={};
+        (rep.list||[]).forEach(function(c){names[c.id]=c.short});
+        var tx=typeof rep.thisTextBytes==="number"?(rep.thisTextBytes?"Saved ("+(Math.round(rep.thisTextBytes/104857.6)/10)+" MB)":"Not on this phone"):String(rep.thisTextBytes);
+        b.appendChild(h("p",{class:"note",text:"Text: "+tx}));
+        b.appendChild(h("p",{class:"note",text:"Audio for "+(names[v.app]||v.app)+": "+here+" file"+(here===1?"":"s")}));
+        Object.keys(f).forEach(function(id){
+          if(id===v.app||!f[id].n)return;
+          var lab=names[id]?names[id]+" (another added version)":"\u201c"+id+"\u201d (no version uses these now)";
+          b.appendChild(h("p",{class:"note",text:"Also saved: "+f[id].n+" audio file"+(f[id].n===1?"":"s")+" under "+lab+"."}));
+          if(!names[id])b.appendChild(h("button",{class:"btn sm",type:"button",onclick:function(){
+            this.disabled=true;this.textContent="Moving\u2026";
+            BBReader.adoptAudio(id,v.app).then(function(n){syncCustom();toast(n+" audio files now belong to "+(names[v.app]||v.app));mode={k:"main"};refresh()});
+          }},["Use these for "+(names[v.app]||v.app)]));
+        });
+        if(rep.usedMB!=null)b.appendChild(h("p",{class:"note",text:"Storage used by this app: "+rep.usedMB+" MB of "+rep.allowedMB+" MB allowed"+(rep.kept===true?" \u00b7 kept safe":rep.kept===false?" \u00b7 the phone may clear it if space runs low":"")}));
+        var det=JSON.stringify(rep);
+        b.appendChild(h("div",{style:"display:grid;gap:8px;margin-top:12px"},[
+          h("button",{class:"btn",type:"button",onclick:function(){var me=this;(navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(det):Promise.reject()).then(function(){me.textContent="Copied"},function(){ta.hidden=false;ta.select()})}},["Copy details"]),
+          h("button",{class:"btn ghost",type:"button",onclick:function(){mode={k:"main"};paint()}},["Back"])]));
+        var ta=h("textarea",{readonly:"",hidden:"",style:"width:100%;height:120px;margin-top:8px;font-size:12px"});ta.value=det;b.appendChild(ta);
+      },function(e){b.innerHTML="";b.appendChild(h("p",{class:"err",text:"Couldn\u2019t check: "+((e&&e.message)||e)}))});
       return;
     }
     if(mode.k==="retext"){

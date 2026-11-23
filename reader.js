@@ -776,6 +776,74 @@
     });
   }
 
+  /* ---------- finding and checking an added version's audio ---------- */
+  // every saved file of an added version is stored as ".../bbcustom/<version id>/<file>.mp3"
+  function customAudioFolders() {
+    if (!window.caches) return Promise.resolve({});
+    return caches.open(AUDIO_CACHE).then(function (c) { return c.keys(); }).then(function (ks) {
+      var f = {};
+      ks.forEach(function (k) {
+        var m = /\/bbcustom\/([^\/]+)\/([^\/?#]+)$/.exec(k.url);
+        if (!m) return;
+        var x = f[m[1]] || (f[m[1]] = { n: 0, elsewhere: 0 });
+        x.n++;
+        if (TR[m[1]] && TR[m[1]].custom && k.url.indexOf(audioBase(TR[m[1]])) !== 0) x.elsewhere++;
+      });
+      return f;
+    }).catch(function () { return {}; });
+  }
+  // move saved audio files from one place to an added version (another folder name, or saved under another address)
+  function adoptAudio(fromId, toId) {
+    var t = TR[toId];
+    if (!t || !t.custom || !window.caches) return Promise.resolve(0);
+    var base = audioBase(t), moved = 0;
+    return caches.open(AUDIO_CACHE).then(function (c) {
+      return c.keys().then(function (ks) {
+        var mine = ks.filter(function (k) { var m = /\/bbcustom\/([^\/]+)\/([^\/?#]+)$/.exec(k.url); return m && m[1] === fromId && k.url.indexOf(base) !== 0; });
+        return mine.reduce(function (p, k) {
+          return p.then(function () {
+            return c.match(k).then(function (r) {
+              if (!r) return;
+              var file = k.url.split("/").pop(), to = base + file;
+              return c.match(new Request(to)).then(function (have) {
+                return (have ? Promise.resolve() : c.put(new Request(to), r)).then(function () { return c.delete(k); }).then(function () { delete audioHave[k.url]; audioHave[to] = true; moved++; });
+              });
+            });
+          });
+        }, Promise.resolve());
+      });
+    }).then(function () {
+      if (moved && !t.audio) setCustomAudio(toId, true);
+      dlEmit(); return moved;
+    });
+  }
+  // at start: audio of an added version that was saved under a different address is moved to where it is looked for
+  function healAudio() {
+    return customAudioFolders().then(function (f) {
+      return Object.keys(f).reduce(function (p, id) {
+        return p.then(function () { if (f[id].elsewhere) return adoptAudio(id, id); });
+      }, Promise.resolve());
+    }).catch(function () {});
+  }
+  // everything this device holds for added versions, in words, for "Storage check"
+  function storageReport(id) {
+    var t = TR[id], rep = { version: id, page: location.href, audioPlace: t && t.custom ? audioBase(t) : "", list: readCustoms() };
+    return Promise.all([
+      window.indexedDB ? idbDo("readonly", function (st) { return st.getAllKeys ? st.getAllKeys() : null; }).catch(function (e) { return "error: " + (e && e.message); }) : Promise.resolve("no IndexedDB"),
+      window.indexedDB ? idbDo("readonly", function (st) { return st.get(id); }).then(function (b) { return b ? b.byteLength : 0; }).catch(function (e) { return "error: " + (e && e.message); }) : Promise.resolve(0),
+      customAudioFolders(),
+      window.caches ? caches.keys().catch(function () { return []; }) : Promise.resolve([]),
+      navigator.storage && navigator.storage.estimate ? navigator.storage.estimate().catch(function () { return null; }) : Promise.resolve(null),
+      navigator.storage && navigator.storage.persisted ? navigator.storage.persisted().catch(function () { return null; }) : Promise.resolve(null),
+      window.caches ? caches.open(AUDIO_CACHE).then(function (c) { return c.keys(); }).then(function (ks) { return ks.length; }).catch(function () { return -1; }) : Promise.resolve(-1)
+    ]).then(function (r) {
+      rep.textsStored = r[0]; rep.thisTextBytes = r[1]; rep.audioFolders = r[2]; rep.caches = r[3];
+      rep.allAudioFiles = r[6]; rep.kept = r[5];
+      if (r[4]) { rep.usedMB = Math.round((r[4].usage || 0) / 1048576); rep.allowedMB = Math.round((r[4].quota || 0) / 1048576); }
+      return rep;
+    });
+  }
+
   /* ---------- adding and removing your own versions ---------- */
   function addVersion(file, meta) {
     meta = meta || {};
@@ -1846,7 +1914,7 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
 
   loadAudioHave();
-  healCustoms();
+  healCustoms().then(healAudio);
   tell("ready");
 
   window.BBReader = {
@@ -1859,6 +1927,7 @@
     open: open,
     addVersion: addVersion, removeVersion: removeVersion, customs: readCustoms, healCustoms: healCustoms,
     customMissing: function (id) { return !!customMissing[id]; },
+    storageReport: storageReport, adoptAudio: adoptAudio, audioFolders: customAudioFolders,
     audioUrl: function (id, b, c) { return audioUrlFor(TR[id], b, c); },   // the recording's address, so the plan screen can ask it how long a chapter is
     close: function () { close(false); },
     saved: savedSpot,

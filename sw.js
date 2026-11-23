@@ -1,6 +1,6 @@
 /* Bible Bridge service worker.
    Change VERSION whenever you upload a new index.html so phones pick up the update. */
-const VERSION = 'v3.7.9';
+const VERSION = 'v3.8.0';
 const CACHE = 'bible-bridge-' + VERSION;
 const CORE = ['./', 'index.html', 'style.css', 'app.js', 'images.js', 'reader.js', 'reader.css', 'manifest.webmanifest'];
 
