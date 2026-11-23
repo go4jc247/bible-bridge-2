@@ -1,6 +1,6 @@
 /* Bible Bridge service worker.
    Change VERSION whenever you upload a new index.html so phones pick up the update. */
-const VERSION = 'v3.8.2';
+const VERSION = 'v3.8.3';
 const CACHE = 'bible-bridge-' + VERSION;
 const CORE = ['./', 'index.html', 'style.css', 'app.js', 'images.js', 'reader.js', 'reader.css', 'manifest.webmanifest'];
 
@@ -24,11 +24,19 @@ self.addEventListener('activate', event => {
 
 /* Opening the app: try the network first (so updates arrive), fall back to the saved copy
    when offline or when the network is slow. */
+/* Look only in the app's own cache, and never wait on it for long. (caches.match() with no cache named searches every
+   cache in turn, starting with the audio store, which can hold thousands of large files.) */
+function appMatch(req) {
+  return Promise.race([
+    caches.open(CACHE).then(c => c.match(req)).catch(() => undefined),
+    new Promise(r => setTimeout(() => r(undefined), 2500))
+  ]);
+}
 function openApp(request) {
   return new Promise(resolve => {
     let done = false;
     const finish = r => { if (!done && r) { done = true; resolve(r); } };
-    const fromCache = () => caches.match('index.html').then(finish);
+    const fromCache = () => appMatch('index.html').then(finish);
     const timer = setTimeout(fromCache, 3500);
     fetch(request).then(res => {
       clearTimeout(timer);
@@ -52,10 +60,11 @@ self.addEventListener('fetch', event => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;           // fonts, Bible sites, etc. go straight to the network
   if (/\/lang\/[^/]+\.json$/.test(url.pathname)) return;   // language packs: the app fetches and keeps these itself
+  if (/\/tools\//.test(url.pathname)) return;               // standalone helper pages: not part of the app, straight to the network
   if (req.mode === 'navigate') { event.respondWith(openApp(req)); return; }
   if (/\/audio\/booknames\//.test(url.pathname)) {   // tiny book-name clips: cache the FULL file on first play, ignoring any Range header
     event.respondWith(
-      caches.match(req).then(hit => hit || fetch(req.url).then(res => {
+      appMatch(req).then(hit => hit || fetch(req.url).then(res => {
         if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
         return res;
       }))
@@ -64,7 +73,7 @@ self.addEventListener('fetch', event => {
   }
   if (req.headers.has('range')) return;                      // Bible text is read piece by piece (byte ranges): the reader keeps its own offline copy
   event.respondWith(
-    caches.match(req).then(hit => {
+    appMatch(req).then(hit => {
       const refresh = fetch(req).then(res => {
         if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
         return res;

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#06306f">
+<link rel="icon" href="data:,">
+<title>Shrink Bible audio</title>
+<style>
+:root{--bg:#f7f5f0;--card:#fff;--ink:#0f2a4a;--muted:#5d6b82;--line:#e4e1d8;--navy:#06306f;--ok:#2e7d4f;--bad:#b3261e;color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1626;--card:#16223a;--ink:#e8ecf5;--muted:#9aa7c0;--line:#26344f;--navy:#3f6bb5;--ok:#6fcf97;--bad:#ff8a80}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+main{max-width:560px;margin:0 auto;padding:calc(env(safe-area-inset-top,0px) + 20px) 18px 40px}
+h1{font-size:1.45rem;margin:0 0 6px}
+p{margin:8px 0}
+.muted{color:var(--muted);font-size:.93rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:14px 0}
+label.f{display:block;font-weight:600;margin:10px 0 4px}
+select{font:inherit;padding:8px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);width:100%}
+.btn{display:block;width:100%;font:inherit;font-weight:600;padding:13px;border-radius:12px;border:0;background:var(--navy);color:#fff;margin-top:10px;cursor:pointer;text-align:center;text-decoration:none}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn:disabled{opacity:.45}
+.bar{height:10px;background:var(--line);border-radius:6px;overflow:hidden;margin:10px 0 4px}
+.bar>i{display:block;height:100%;width:0;background:var(--navy);transition:width .3s}
+.ok{color:var(--ok)} .bad{color:var(--bad)}
+ul{padding-left:20px;margin:6px 0} li{margin:3px 0}
+.big{font-size:1.15rem;font-weight:600}
+</style>
+</head>
+<body>
+<main>
+<h1>Shrink Bible audio</h1>
+<p class="muted">Makes a whole Bible's audio files much smaller so they fit comfortably on your phone. A single voice still sounds clear. File names stay the same, so Bible Bridge still knows which chapter each file is.</p>
+
+<div class="card" id="setup">
+  <label class="f" for="q">Quality</label>
+  <select id="q">
+    <option value="48">Standard: 48 kbps (about 0.35 MB a minute)</option>
+    <option value="64">Higher: 64 kbps (about 0.5 MB a minute)</option>
+    <option value="32">Smallest: 32 kbps (about 0.25 MB a minute)</option>
+  </select>
+  <label class="f" for="bs">Files in each zip</label>
+  <select id="bs">
+    <option value="100">100 files</option>
+    <option value="200">200 files</option>
+    <option value="50">50 files</option>
+  </select>
+  <input id="pick" type="file" multiple accept=".mp3,.m4a,.aac,.wav,audio/*" hidden>
+  <button class="btn" id="choose" type="button">Choose the audio files</button>
+  <p class="muted" id="picked"></p>
+  <button class="btn" id="start" type="button" disabled>Start</button>
+</div>
+
+<div class="card" id="work" hidden>
+  <div class="big" id="phase">Working…</div>
+  <div class="bar"><i id="fill"></i></div>
+  <p class="muted" id="detail"></p>
+  <div id="saveBox"></div>
+  <p class="muted" id="tip">Keep this page open with the screen on and the phone plugged in. If it stops, open this page again, choose the same files, and it carries on from the next zip.</p>
+</div>
+
+<div class="card" id="done" hidden></div>
+
+<p class="muted">Everything happens on this phone. Nothing is uploaded. MP3 encoding by <a href="https://lame.sourceforge.io" style="color:inherit">LAME</a> (lamejs, LGPL).</p>
+</main>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var files = [], sig = "", startT = 0, doneSec = 0, totalSec = 0, wake = null, actx = null;
+  var stats = { inBytes: 0, outBytes: 0, kept: [], failed: [] };
+
+  /* ---------- the same MP3 check Bible Bridge uses: a chapter-1 file with a short clip glued on the front
+     carries a header saying the whole file is ~3 seconds, which can make Safari decode only those 3 seconds.
+     Dropping that one header frame (it holds no sound) fixes it before decoding. ---------- */
+  var MP3_BR = [[0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0], [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0]];
+  var MP3_SR = [44100, 48000, 32000, 0];
+  function mp3Head(u, i) {                            // one Layer III frame header at i: { len, spf, sr } or null
+    if (i + 4 > u.length || u[i] !== 0xFF || (u[i + 1] & 0xE0) !== 0xE0) return null;
+    var ver = (u[i + 1] >> 3) & 3, lay = (u[i + 1] >> 1) & 3;
+    if (ver === 1 || lay !== 1) return null;           // reserved version, or not Layer III
+    var bri = u[i + 2] >> 4, sri = (u[i + 2] >> 2) & 3, pad = (u[i + 2] >> 1) & 1;
+    if (bri === 0 || bri === 15 || sri === 3) return null;
+    var v1 = ver === 3, sr = MP3_SR[sri] / (v1 ? 1 : ver === 2 ? 2 : 4), br = MP3_BR[v1 ? 0 : 1][bri] * 1000;
+    var len = Math.floor((v1 ? 144 : 72) * br / sr) + pad;
+    return len > 4 ? { len: len, spf: v1 ? 1152 : 576, sr: sr, v1: v1, mono: (u[i + 3] >> 6) === 3 } : null;
+  }
+  function id3Len(u, i) {                             // size of an ID3v2 tag starting at i, or 0
+    if (i + 10 > u.length || u[i] !== 0x49 || u[i + 1] !== 0x44 || u[i + 2] !== 0x33) return 0;
+    var n = ((u[i + 6] & 127) << 21) | ((u[i + 7] & 127) << 14) | ((u[i + 8] & 127) << 7) | (u[i + 9] & 127);
+    return 10 + n + ((u[i + 5] & 0x10) ? 10 : 0);
+  }
+  function mp3Scan(buf) {
+    var u = new Uint8Array(buf), i = 0, frames = [], samples = 0, sr = 0, first = -1, guard = 0;
+    while (i < u.length - 4 && guard++ < 2000000) {
+      var t = id3Len(u, i); if (t) { i += t; continue; }
+      var h = mp3Head(u, i);
+      if (h && (i + h.len >= u.length - 4 || mp3Head(u, i + h.len) || id3Len(u, i + h.len))) {
+        if (first < 0) first = i;
+        frames.push(i); samples += h.spf; if (!sr) sr = h.sr;
+        i += h.len; continue;
+      }
+      i++;                                             // not a frame: slide forward until the next real one
+    }
+    if (!frames.length || !sr) return { dur: 0, fixed: null };
+    var dur = samples / sr, fixed = null;
+    var fh = mp3Head(u, first), side = fh.v1 ? (fh.mono ? 17 : 32) : (fh.mono ? 9 : 17);
+    var tagAt = function (x) { return x + 4 <= u.length ? String.fromCharCode(u[x], u[x + 1], u[x + 2], u[x + 3]) : ""; };
+    var x = first + 4 + side, tag = tagAt(x), said = -1;
+    if (tag === "Xing" || tag === "Info") { var fl = (u[x + 4] << 24 | u[x + 5] << 16 | u[x + 6] << 8 | u[x + 7]) >>> 0; if (fl & 1) said = (u[x + 8] << 24 | u[x + 9] << 16 | u[x + 10] << 8 | u[x + 11]) >>> 0; }
+    else if (tagAt(first + 36) === "VBRI") { tag = "VBRI"; said = (u[first + 50] << 24 | u[first + 51] << 16 | u[first + 52] << 8 | u[first + 53]) >>> 0; }
+    else tag = "";
+    if (tag) {
+      // a second header further in means two recordings were glued together ("Genesis, chapter 1" + the chapter)
+      var glued = false;
+      for (var q = 1; q < frames.length && !glued; q++) {
+        var hq = mp3Head(u, frames[q]); if (!hq) continue;
+        var xq = frames[q] + 4 + (hq.v1 ? (hq.mono ? 17 : 32) : (hq.mono ? 9 : 17)), tq = tagAt(xq);
+        if (tq === "Xing" || tq === "Info" || tagAt(frames[q] + 36) === "VBRI") glued = true;
+      }
+      var real = frames.length - 1;
+      if (glued || (said >= 0 && Math.abs(said - real) > Math.max(10, real * 0.02))) {
+        // leave the audio untouched and simply drop that one header frame (it holds no sound). With no header left,
+        // the browser works the length out from the file itself.
+        var flen = fh.len, out = new Uint8Array(u.length - flen);
+        out.set(u.subarray(0, first), 0); out.set(u.subarray(first + flen), first);
+        fixed = out.buffer;
+      }
+    }
+    return { dur: dur, fixed: fixed };
+  }
+
+  /* ---------- zip writer (stored: MP3s don't compress) ---------- */
+  var CRC = (function () { var t = new Uint32Array(256); for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function crc32(u) { var c = 0xFFFFFFFF; for (var i = 0; i < u.length; i++) c = CRC[(c ^ u[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+  function makeZip(entries) {          // entries: [{name, data:Uint8Array}]
+    var parts = [], central = [], off = 0, enc = new TextEncoder();
+    entries.forEach(function (e) {
+      var nm = enc.encode(e.name), crc = crc32(e.data), h = new DataView(new ArrayBuffer(30));
+      h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+      h.setUint32(14, crc, true); h.setUint32(18, e.data.length, true); h.setUint32(22, e.data.length, true); h.setUint16(26, nm.length, true);
+      parts.push(h.buffer, nm, e.data);
+      var c = new DataView(new ArrayBuffer(46));
+      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
+      c.setUint32(16, crc, true); c.setUint32(20, e.data.length, true); c.setUint32(24, e.data.length, true); c.setUint16(28, nm.length, true); c.setUint32(42, off, true);
+      central.push(c.buffer, nm);
+      off += 30 + nm.length + e.data.length;
+    });
+    var csize = central.reduce(function (a, b) { return a + b.byteLength; }, 0), end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true);
+    end.setUint32(12, csize, true); end.setUint32(16, off, true);
+    return new Blob(parts.concat(central, [end.buffer]), { type: "application/zip" });
+  }
+
+  /* ---------- encoders (one per spare processor core) ---------- */
+  var nW = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1)), workers = [], waiting = {}, seq = 0;
+  for (var w = 0; w < nW; w++) {
+    var wk = new Worker("shrink-worker.js");
+    wk.onmessage = function (e) { var cb = waiting[e.data.id]; delete waiting[e.data.id]; if (cb) cb(e.data); };
+    workers.push({ w: wk, busy: 0 });
+  }
+  function encode(pcm, sr, kbps) {
+    return new Promise(function (res, rej) {
+      var id = ++seq, best = workers.reduce(function (a, b) { return b.busy < a.busy ? b : a; });
+      best.busy++;
+      waiting[id] = function (r) { best.busy--; if (r.error) rej(new Error(r.error)); else res(r.mp3); };
+      best.w.postMessage({ id: id, pcm: pcm, sr: sr, kbps: kbps }, [pcm.buffer]);
+    });
+  }
+
+  /* ---------- one file: check, decode, mix to mono at 24 kHz, encode ---------- */
+  var SR = 24000;
+  function shrinkOne(file, kbps) {
+    return file.arrayBuffer().then(function (buf) {
+      stats.inBytes += buf.byteLength;
+      var isMp3 = /\.mp3$/i.test(file.name), counted = 0, src = buf;
+      if (isMp3) { var r = mp3Scan(buf); counted = r.dur; if (r.fixed) src = r.fixed; }
+      return new Promise(function (res, rej) {
+        actx.decodeAudioData(src.slice(0), res, function (e) { rej(e || new Error("couldn't read the audio")); });
+      }).then(function (ab) {
+        if (counted > 5 && ab.duration < counted * 0.9) throw new Error("only " + Math.round(ab.duration) + " of " + Math.round(counted) + " seconds could be read");
+        var len = Math.max(1, Math.ceil(ab.duration * SR)), off = new OfflineAudioContext(1, len, SR), s = off.createBufferSource();
+        s.buffer = ab; s.connect(off.destination); s.start();
+        return off.startRendering().then(function (out) {
+          var f = out.getChannelData(0), pcm = new Int16Array(f.length);
+          for (var i = 0; i < f.length; i++) { var v = f[i]; pcm[i] = v < -1 ? -32768 : v > 1 ? 32767 : v * 32767; }
+          var secs = ab.duration;
+          return encode(pcm, SR, kbps).then(function (mp3) {
+            if (mp3.length >= buf.byteLength) return { data: new Uint8Array(buf), secs: secs, kept: "already small" };
+            return { data: mp3, secs: secs };
+          });
+        });
+      }).catch(function (e) {
+        // never lose a chapter: if it can't be shrunk, the original goes into the zip unchanged
+        return { data: new Uint8Array(buf), secs: counted, kept: (e && e.message) || "couldn't be shrunk" };
+      });
+    });
+  }
+
+  /* ---------- the run ---------- */
+  function fmtT(s) { s = Math.max(0, Math.round(s)); var h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h ? h + " h " + m + " min" : m + " min"; }
+  function mb(n) { return n >= 1e9 ? (n / 1e9).toFixed(2) + " GB" : Math.round(n / 1e6) + " MB"; }
+  function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function outName(n) { return n.replace(/\.(m4a|aac|wav|mp4|ogg|opus)$/i, ".mp3"); }
+
+  $("choose").onclick = function () { $("pick").click(); };
+  $("pick").onchange = function () {
+    files = Array.prototype.slice.call($("pick").files || []).filter(function (f) { return /\.(mp3|m4a|aac|wav)$/i.test(f.name) || /^audio\//.test(f.type); });
+    files.sort(function (a, b) { return a.name.localeCompare(b.name, undefined, { numeric: true }); });
+    var bytes = files.reduce(function (a, f) { return a + f.size; }, 0);
+    sig = "shrink:" + files.length + ":" + bytes + ":" + (files[0] ? files[0].name : "") + ":" + (files.length ? files[files.length - 1].name : "");
+    var done = parseInt(load(sig) || "0", 10) || 0, bs = +$("bs").value, parts = Math.ceil(files.length / bs);
+    if (done >= parts && files.length) {
+      $("picked").textContent = files.length + " audio files, " + mb(bytes) + ". All " + parts + " zips for these were already made. Tap Start to make them all again.";
+      store(sig, "0");
+    } else $("picked").textContent = files.length ? files.length + " audio files, " + mb(bytes) + "." + (done ? " Zips 1–" + done + " were already made last time, so it carries on from zip " + (done + 1) + "." : " That makes " + parts + " zip" + (parts === 1 ? "" : "s") + ".") : "No audio files were picked.";
+    $("start").disabled = !files.length;
+  };
+  $("start").onclick = function () {
+    try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+    if (!actx) { alert("This browser can't decode audio."); return; }
+    try { if (navigator.wakeLock) navigator.wakeLock.request("screen").then(function (l) { wake = l; }).catch(function () {}); } catch (e) {}
+    $("setup").hidden = true; $("work").hidden = false;
+    run(+$("q").value, +$("bs").value);
+  };
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && wake === null && !$("work").hidden) { try { navigator.wakeLock.request("screen").then(function (l) { wake = l; }).catch(function () {}); } catch (e) {} }
+  });
+
+  function run(kbps, bs) {
+    var parts = Math.ceil(files.length / bs), first = parseInt(load(sig) || "0", 10) || 0;
+    startT = Date.now(); doneSec = 0;
+    totalSec = files.slice(first * bs).reduce(function (a, f) { return a + f.size; }, 0);   // bytes left, for the time estimate
+    next(first);
+    function next(p) {                    // make zip p (counting from 0), let it be saved, then go on
+      if (p >= parts) return finish(parts);
+      var group = files.slice(p * bs, (p + 1) * bs), out = [];
+      $("saveBox").innerHTML = "";
+      (function one(i) {
+        if (i >= group.length) return ready(p, out);
+        var f = group[i], n = p * bs + i + 1;
+        $("phase").textContent = "Zip " + (p + 1) + " of " + parts + " · file " + n + " of " + files.length;
+        $("fill").style.width = (100 * (n - 1) / files.length) + "%";
+        var el = (Date.now() - startT) / 1000, left = doneSec > 0 ? el / doneSec * (totalSec - doneSec) : 0;
+        $("detail").textContent = f.name + (left > 30 ? " · about " + fmtT(left) + " left" : "");
+        shrinkOne(f, kbps).then(function (r) {
+          doneSec += f.size; stats.outBytes += r.data.length;
+          if (r.kept) stats.kept.push(f.name + " (" + r.kept + ")");
+          out.push({ name: r.kept ? f.name : outName(f.name), data: r.data });
+          one(i + 1);
+        });
+      })(0);
+    }
+    function ready(p, out) {
+      var zip = makeZip(out), name = "audio-part-" + String(p + 1).padStart(2, "0") + "-of-" + String(parts).padStart(2, "0") + ".zip";
+      var url = URL.createObjectURL(zip);
+      $("phase").textContent = "Zip " + (p + 1) + " of " + parts + " is ready (" + mb(zip.size) + ")";
+      $("fill").style.width = (100 * Math.min(files.length, (p + 1) * bs) / files.length) + "%";
+      $("detail").textContent = "Save it, then this page carries on with the next one.";
+      var a = document.createElement("a");
+      a.className = "btn"; a.href = url; a.download = name; a.textContent = "Save " + name;
+      a.onclick = function () {
+        store(sig, String(p + 1));           // remembered, so a reload carries on from the next zip
+        a.textContent = "Saved. Carrying on…";
+        setTimeout(function () { URL.revokeObjectURL(url); a.remove(); next(p + 1); }, 1500);
+      };
+      $("saveBox").appendChild(a);
+    }
+  }
+  function finish(parts) {
+    try { if (wake) wake.release(); } catch (e) {}
+    $("work").hidden = true;
+    var d = $("done"); d.hidden = false; d.innerHTML = "";
+    var h = document.createElement("p"); h.className = "big ok"; h.textContent = "All " + parts + " zip" + (parts === 1 ? " is" : "s are") + " made."; d.appendChild(h);
+    if (stats.inBytes) { var s = document.createElement("p"); s.textContent = "This session: " + mb(stats.inBytes) + " became " + mb(stats.outBytes) + "."; d.appendChild(s); }
+    var n = document.createElement("p"); n.textContent = "In Bible Bridge, open the version's download screen, tap Add audio from my device, and pick the zips. You can add several at once."; d.appendChild(n);
+    if (stats.kept.length) {
+      var k = document.createElement("p"); k.textContent = stats.kept.length + " file" + (stats.kept.length === 1 ? " was" : "s were") + " kept as they were (still in the zips, just not smaller):"; d.appendChild(k);
+      var ul = document.createElement("ul"); stats.kept.slice(0, 30).forEach(function (t) { var li = document.createElement("li"); li.textContent = t; ul.appendChild(li); }); d.appendChild(ul);
+    }
+  }
+})();
+</script>
+</body>
+</html>
