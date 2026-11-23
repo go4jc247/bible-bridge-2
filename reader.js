@@ -751,9 +751,15 @@
   }
   function importAudio(id, files, onProg) {
     var t = TR[id], res = { saved: 0, skipped: 0, unmatched: [], failed: 0, error: "", inZip: 0, other: [] };
-    if (!t || (!t.audio && !t.custom) || t.audio === "rst") return Promise.resolve(res);
+    if (!t) {                                          // an added version the reader hasn't picked up yet: take it from the list
+      var cl = readCustoms().filter(function (x) { return x.id === id; })[0];
+      if (cl) { addCustomTr(cl); t = TR[id]; }
+    }
+    if (!t) { res.error = "noversion"; return Promise.resolve(res); }
+    if ((!t.audio && !t.custom) || t.audio === "rst") { res.error = "noimport"; return Promise.resolve(res); }
     if (!window.caches) { res.error = "nocache"; return Promise.resolve(res); }
     files = Array.prototype.slice.call(files || []);
+    if (!files.length) { res.error = "nofiles"; return Promise.resolve(res); }
     var ix = { len: CH_COUNT.map(function (n) { return new Array(n); }) };
     return Promise.resolve().then(function () {
       var jobs = [];

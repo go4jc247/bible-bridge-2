@@ -1867,8 +1867,11 @@ function openDownloads(v,view){
         if(r.failed)lines.push(_f("{0} couldn't be saved.",[dlCount(r.failed)])+(r.failedNames&&r.failedNames.length?" "+r.failedNames.join(", ")+(r.failed>r.failedNames.length?"\u2026":"")+". Try adding just those again.":""));
         if(r.error==="full")lines.push("The device ran out of storage space. What was added is kept.");
         else if(r.error==="nocache")lines.push("This browser can't keep files for offline use here.");
+        else if(r.error==="nofiles")lines.push("The phone didn\u2019t hand over any files. If the file is in iCloud Drive, open it once in the Files app so it downloads to the phone, then pick it again.");
+        else if(r.error==="noversion")lines.push("This version isn\u2019t set up on this device right now. Close the app completely, reopen it, and try again.");
+        else if(r.error==="noimport")lines.push("Audio can\u2019t be added to this version from files.");
         else if(r.error)lines.push(r.error.indexOf("Something went wrong")===0?r.error:r.error);
-        if(r.saved&&!r.error)lines.push("You can delete the zip from Files now to free up space.");
+        if(r.saved&&!r.error&&r.inZip)lines.push("You can delete the zip from Files now to free up space.");
         lines.forEach(function(t){b.appendChild(h("p",{class:"muted",text:t}))});
         b.appendChild(h("div",{style:"display:grid;gap:8px;margin-top:12px"},[
           h("button",{class:"btn",type:"button",onclick:function(){mode={k:"main"};imp=null;refresh()}},["Done"]),
@@ -1887,7 +1890,9 @@ function openDownloads(v,view){
       }
       var fi=h("input",{type:"file",multiple:"",accept:".zip,.mp3,audio/mpeg,application/zip",style:"display:none"});
       fi.onchange=function(){
-        var fs=fi.files;if(!fs||!fs.length)return;
+        // take the files out of the picker before the screen is redrawn (on iPhone a redraw can lose them)
+        var fs=Array.prototype.slice.call(fi.files||[]);
+        if(!fs.length){imp={res:{saved:0,skipped:0,unmatched:[],failed:0,error:"nofiles"}};if(mine())paint();return}
         imp={running:true,done:0,total:0,at:""};paint();
         function fail(e){imp={res:{saved:0,skipped:0,unmatched:[],failed:0,error:_f("Something went wrong: {0}. Close the app completely and reopen it, then try again.",[_((e&&e.message)||String(e))])}};if(mine())paint()}
         if(typeof dl.importAudio!=="function"){fail(new Error("this version of the app is missing the audio import"));return}
