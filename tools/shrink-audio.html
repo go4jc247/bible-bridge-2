@@ -170,8 +170,21 @@ ul{padding-left:20px;margin:6px 0} li{margin:3px 0}
   }
 
   /* ---------- one file: check, decode, mix to mono at 24 kHz, encode ---------- */
-  var SR = 24000;
+  // the encoder's own sample-rate conversion is broken (it gives silence), so the sound is always handed over at the
+  // rate the encoder wants for that quality: 22,050 Hz for 32 kbps, 24,000 Hz otherwise
+  function rateFor(kbps) { return kbps <= 32 ? 22050 : 24000; }
+  function peakOf(f) { var m = 0; for (var i = 0; i < f.length; i += 7) { var v = f[i] < 0 ? -f[i] : f[i]; if (v > m) m = v; } return m; }
+  // play the shrunk file back (silently, by decoding it) to be sure it has sound and the right length
+  function verify(mp3, secs, inPeak) {
+    return new Promise(function (res, rej) {
+      actx.decodeAudioData(mp3.buffer.slice(mp3.byteOffset, mp3.byteOffset + mp3.byteLength), res, function () { rej(new Error("the smaller copy couldn't be read back")); });
+    }).then(function (ab) {
+      if (Math.abs(ab.duration - secs) > Math.max(2, secs * 0.03)) throw new Error("the smaller copy came out the wrong length");
+      if (inPeak > 0.01 && peakOf(ab.getChannelData(0)) < inPeak * 0.1) throw new Error("the smaller copy came out silent");
+    });
+  }
   function shrinkOne(file, kbps) {
+    var SR = rateFor(kbps);
     return file.arrayBuffer().then(function (buf) {
       stats.inBytes += buf.byteLength;
       var isMp3 = /\.mp3$/i.test(file.name), counted = 0, src = buf;
@@ -183,12 +196,13 @@ ul{padding-left:20px;margin:6px 0} li{margin:3px 0}
         var len = Math.max(1, Math.ceil(ab.duration * SR)), off = new OfflineAudioContext(1, len, SR), s = off.createBufferSource();
         s.buffer = ab; s.connect(off.destination); s.start();
         return off.startRendering().then(function (out) {
-          var f = out.getChannelData(0), pcm = new Int16Array(f.length);
+          var f = out.getChannelData(0), pcm = new Int16Array(f.length), inPeak = peakOf(f);
+          if (inPeak < 1e-4 && peakOf(ab.getChannelData(0)) > 1e-3) throw new Error("the sound was lost while converting");
           for (var i = 0; i < f.length; i++) { var v = f[i]; pcm[i] = v < -1 ? -32768 : v > 1 ? 32767 : v * 32767; }
           var secs = ab.duration;
           return encode(pcm, SR, kbps).then(function (mp3) {
             if (mp3.length >= buf.byteLength) return { data: new Uint8Array(buf), secs: secs, kept: "already small" };
-            return { data: mp3, secs: secs };
+            return verify(mp3, secs, inPeak).then(function () { return { data: mp3, secs: secs }; });
           });
         });
       }).catch(function (e) {
