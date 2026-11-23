@@ -313,13 +313,24 @@
   var dlJobs = {}, dlSubs = [];
 
   var audioScanned = false;                          // true once the startup look through saved audio has finished
+  var audioScanP = null;
   function loadAudioHave() {
-    try {
-      if (!window.caches) return Promise.resolve();
+    // one look at a time; on a busy phone the first look can fail, so try again before giving up,
+    // and if it still fails say so -- never treat a failed look as "no audio saved"
+    if (audioScanP) return audioScanP;
+    if (!window.caches) return Promise.resolve();
+    var tries = 0;
+    function look() {
       return caches.open(AUDIO_CACHE).then(function (c) { return c.keys(); }).then(function (ks) {
         for (var i = 0; i < ks.length; i++) audioHave[ks[i].url] = true;
-      }).catch(function () {}).then(function () { audioScanned = true; });
-    } catch (e) { return Promise.resolve(); }
+        audioScanned = true;
+      }, function (e) {
+        if (++tries < 4) return new Promise(function (r) { setTimeout(r, 700 * tries); }).then(look);
+        audioScanned = true; throw e || new Error("couldn't read saved audio");
+      });
+    }
+    audioScanP = look().then(function () { audioScanP = null; }, function (e) { audioScanP = null; throw e; });
+    return audioScanP;
   }
   /* ---------- MP3 length check ----------
      Some audio Bibles build each chapter-1 file by gluing a short "Genesis, chapter 1" clip onto the front of the
@@ -455,7 +466,7 @@
   function haveAudio(t) {
     var out = {};
     if (!window.caches || !(t.audio || t.custom)) return Promise.resolve(out);
-    return loadAudioHave().then(function () { return audioHave; });
+    return loadAudioHave().then(function () { return audioHave; });   // a failed look rejects: the screen then says it couldn't check
   }
   // how much is saved, without needing the book index (for the little icons in the version list)
   function dlQuick(id) {
@@ -673,6 +684,7 @@
     return new Promise(function (res, rej) { var fr = new FileReader(); fr.onload = function () { res(fr.result); }; fr.onerror = function () { rej(fr.error); }; fr.readAsArrayBuffer(sl); });
   }
   // list the files inside a zip without loading the whole zip into memory
+  function u64(v, o) { return u32(v, o) + u32(v, o + 4) * 4294967296; }
   function zipEntries(f) {
     var tail = Math.min(f.size, 65557);
     return readSlice(f, f.size - tail, f.size).then(function (buf) {
@@ -680,15 +692,39 @@
       for (i = buf.byteLength - 22; i >= 0; i--) if (u32(v, i) === 0x06054b50) { p = i; break; }
       if (p < 0) throw new Error("This doesn't look like a zip file.");
       var n = u16(v, p + 10), size = u32(v, p + 12), off = u32(v, p + 16);
-      if (n === 0xffff || size === 0xffffffff || off === 0xffffffff) throw new Error("This zip uses a format the app can't read.");
-      return readSlice(f, off, off + size).then(function (cb) {
+      var where = Promise.resolve({ size: size, off: off });
+      if (n === 0xffff || size === 0xffffffff || off === 0xffffffff) {
+        // a zip over 4 GB (or with very many files) keeps the real numbers in a "ZIP64" record just before this one
+        if (p < 20 || u32(v, p - 20) !== 0x07064b50) throw new Error("This zip uses a format the app can't read.");
+        var z64 = u64(v, p - 20 + 8);
+        where = readSlice(f, z64, z64 + 56).then(function (zb) {
+          var zv = new DataView(zb);
+          if (u32(zv, 0) !== 0x06064b50) throw new Error("This zip looks damaged.");
+          return { size: u64(zv, 40), off: u64(zv, 48) };
+        });
+      }
+      return where.then(function (w) { return readSlice(f, w.off, w.off + w.size); }).then(function (cb) {
         var cv = new DataView(cb), out = [], q = 0, dec = new TextDecoder("utf-8");
         while (q + 46 <= cb.byteLength && u32(cv, q) === 0x02014b50) {
           var nl = u16(cv, q + 28), el = u16(cv, q + 30), cl = u16(cv, q + 32);
-          out.push({
+          var ent = {
             name: dec.decode(new Uint8Array(cb, q + 46, nl)), method: u16(cv, q + 10),
             csize: u32(cv, q + 20), usize: u32(cv, q + 24), off: u32(cv, q + 42)
-          });
+          };
+          if (ent.csize === 0xffffffff || ent.usize === 0xffffffff || ent.off === 0xffffffff) {
+            // ZIP64: the big numbers sit in the entry's extra field (id 1), in this order, only for those that overflowed
+            for (var x = q + 46 + nl, xe = x + el; x + 4 <= xe;) {
+              var hid = u16(cv, x), hl = u16(cv, x + 2), y = x + 4;
+              if (hid === 1) {
+                if (ent.usize === 0xffffffff && y + 8 <= x + 4 + hl) { ent.usize = u64(cv, y); y += 8; }
+                if (ent.csize === 0xffffffff && y + 8 <= x + 4 + hl) { ent.csize = u64(cv, y); y += 8; }
+                if (ent.off === 0xffffffff && y + 8 <= x + 4 + hl) { ent.off = u64(cv, y); y += 8; }
+                break;
+              }
+              x += 4 + hl;
+            }
+          }
+          out.push(ent);
           q += 46 + nl + el + cl;
         }
         return out;
@@ -766,6 +802,7 @@
               var m = String(e && e.name || "") + String(e && e.message || "");
               if (/Quota/i.test(m)) { res.error = "full"; throw e; }
               res.failed++;
+              if ((res.failedNames = res.failedNames || []).length < 12) res.failedNames.push(j.label + (m === "Errorempty" || m === "empty" ? " (empty file)" : /stuck|took too long|unpacking/i.test(m) ? " (took too long)" : ""));
             }).then(function () { n++; if (n % 20 === 0) dlEmit(); });
           });
         }, Promise.resolve()).then(function () { if (onProg) onProg(jobs.length, jobs.length, ""); });
@@ -1913,7 +1950,7 @@
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
 
-  loadAudioHave();
+  loadAudioHave().catch(function () {});
   healCustoms().then(healAudio);
   tell("ready");
 

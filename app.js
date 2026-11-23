@@ -1745,6 +1745,12 @@ function openDownloads(v,view){
     var d=st[k],j=dl.job(id,k),box=h("div",{class:"dlsec"});
     box.appendChild(h("div",{class:"dlh"},[h("b",{text:kindName(k)}),h("span",{text:d.done>=d.total?_f("All {0} chapters saved",[dlCount(d.total)]):_f("{0} of {1} chapters saved",[dlCount(d.done),dlCount(d.total)])})]));
     box.appendChild(bar(d.done,d.total));
+    if(k==="audio"&&manual&&d.done>0&&d.done<d.total&&d.books&&!(j&&j.running)){
+      // name the chapters still missing, so they can be found and added
+      var miss=[];
+      d.books.forEach(function(bk,bi){bk.chs.forEach(function(x,ci){if(!x)miss.push(BOOKS[bi][1]===1?BOOKS[bi][2]:BOOKS[bi][2]+" "+(ci+1))})});
+      if(miss.length&&miss.length<=60)box.appendChild(h("p",{class:"note",text:"Missing: "+miss.join(", ")+"."}));
+    }
     if(j&&j.running)box.appendChild(h("p",{class:"note",text:_f("Saving {0} \u00b7 {1} of {2} this round",[BOOKS[j.at?j.at[0]:0][2]+" "+(j.at?j.at[1]:""),dlCount(j.i),dlCount(j.total)])}));
     if(j&&j.finished&&j.skipped&&j.skipped.length)box.appendChild(h("p",{class:"note",text:_f(j.skipped.length===1?"Skipped {0} chapter the audio host doesn't have: {1}.":"Skipped {0} chapters the audio host doesn't have: {1}.",[j.skipped.length,j.skipped.slice(0,4).map(function(p){return BOOKS[p[0]][2]+" "+p[1]}).join(", ")])}));
     if(j&&j.error){
@@ -1858,7 +1864,7 @@ function openDownloads(v,view){
           if(r.other&&r.other.length)lines.push("The zip has no audio files the app can use. It found: "+r.other.slice(0,4).join(", ")+(r.other.length>4?"\u2026":"")+".");
           else if(r.inZip===0)lines.push("No files were found in what you picked. If it's a zip, try opening it in Files first and picking the audio files inside.");
         }
-        if(r.failed)lines.push(_f("{0} couldn't be saved.",[dlCount(r.failed)]));
+        if(r.failed)lines.push(_f("{0} couldn't be saved.",[dlCount(r.failed)])+(r.failedNames&&r.failedNames.length?" "+r.failedNames.join(", ")+(r.failed>r.failedNames.length?"\u2026":"")+". Try adding just those again.":""));
         if(r.error==="full")lines.push("The device ran out of storage space. What was added is kept.");
         else if(r.error==="nocache")lines.push("This browser can't keep files for offline use here.");
         else if(r.error)lines.push(r.error.indexOf("Something went wrong")===0?r.error:r.error);
