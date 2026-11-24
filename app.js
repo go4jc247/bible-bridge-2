@@ -1856,11 +1856,25 @@ function openDownloads(v,view){
         b.appendChild(h("p",{class:"muted",text:imp.at||"Looking at the files\u2026"}));
         return;
       }
+      // time left in words: minutes when it's long, minutes and seconds under 5 minutes, seconds under 1 minute
+      var leftText=function(sec){
+        sec=Math.max(0,sec);
+        if(sec>=3600)return Math.floor(sec/3600)+" h "+Math.round(sec%3600/60)+" min";
+        if(sec>=300)return Math.round(sec/60)+" min";
+        var r5=Math.max(5,Math.round(sec/5)*5);if(sec<60)r5=Math.min(55,r5);
+        if(r5>=60){var m=Math.floor(r5/60),ss=r5%60;return m+" min"+(ss?" "+ss+" s":"")}
+        return r5+" s";
+      };
       if(imp&&imp.running){
         b.appendChild(h("p",{class:"muted",text:(imp.shrink?"Making the audio smaller and adding it\u2026":"Adding audio\u2026")+" Keep this screen open with the phone plugged in. If it stops, pick the same files again and it carries on where it left off."}));
         b.appendChild(bar(imp.done,imp.total||1));
         var left="";
-        if(imp.t0&&imp.done>=3&&imp.total>imp.done){var sec=(Date.now()-imp.t0)/1000/imp.done*(imp.total-imp.done);left=" \u00b7 about "+(sec>=3600?Math.floor(sec/3600)+" h "+Math.round(sec%3600/60)+" min":Math.max(1,Math.round(sec/60))+" min")+" left"}
+        if(imp.t0&&imp.done>=3&&imp.total>imp.done){
+          // a steady goal, not a twitchy one: recalculated at most every 15 s, every 10 s in the last minute
+          var now=Date.now(),sec=(now-imp.t0)/1000/imp.done*(imp.total-imp.done);
+          if(imp.etaSec==null||now-imp.etaAt>=(imp.etaSec<60?10000:15000)){imp.etaSec=sec;imp.etaAt=now}
+          left=" \u00b7 about "+leftText(imp.etaSec)+" left";
+        }
         b.appendChild(h("p",{class:"note",text:imp.total?(imp.at?imp.at+" \u00b7 ":"")+_f("{0} of {1}",[dlCount(imp.done),dlCount(imp.total)])+left:(imp.at||_("Reading the files\u2026"))}));
         return;
       }
@@ -1879,9 +1893,27 @@ function openDownloads(v,view){
           b.appendChild(pair(imp.skip,"Skip them","Replace them",function(v){imp.skip=v}));
         }
         if(P.canShrink&&P.worth&&todo){
-          var mins=P.hours*frac*60;
-          b.appendChild(h("p",{class:"muted",text:"These files are "+P.kbps+" kbps, more than one voice needs. Made smaller, they\u2019d take about "+mbs(P.smallBytes*frac)+" instead of "+mbs(P.bytes*frac)+" and sound the same. It takes longer: roughly "+Math.max(1,Math.round(mins/60))+"\u2013"+Math.max(2,Math.round(mins/25))+" minutes."}));
+          b.appendChild(h("p",{class:"muted",text:"These files are "+P.kbps+" kbps, more than one voice needs, and take "+mbs(P.bytes*frac)+". Make them smaller as they\u2019re added?"}));
           b.appendChild(pair(imp.shrink,"Make smaller","Keep as they are",function(v){imp.shrink=v}));
+          if(imp.shrink){
+            // how small: two sizes, each with what it costs in sound
+            var opt=function(k,title,size,what){var on=imp.kbps===k;return h("button",{type:"button","aria-pressed":on,onclick:function(){imp.kbps=k;paint()},
+              style:"display:block;width:100%;text-align:left;font:inherit;padding:12px 14px;margin:0 0 8px;border-radius:12px;cursor:pointer;background:transparent;color:inherit;border:"+(on?"2px solid var(--accent,#1f4e6b)":"1px solid var(--line,#dcd9d0)")},
+              [h("b",{text:(on?"\u2713 ":"")+title+" \u00b7 about "+mbs(size*frac)}),h("div",{class:"muted",style:"margin-top:3px;font-size:.92em",text:what})])};
+            if(P.kbps>48)b.appendChild(opt(48,"Standard (48 kbps)",P.size48,"Sounds the same as the original for one voice reading."));
+            b.appendChild(opt(32,"Smaller (32 kbps)",P.size32,"The very highest sounds, like \u201cs\u201d and \u201csh\u201d, are a little softer. Most people don\u2019t notice with one clear voice; it\u2019s a bit easier to hear at 1.5\u00d7 or 2\u00d7."));
+            if(P.kbps<=48)imp.kbps=32;
+            // a real time estimate: this phone makes a few of the picked files smaller in the background, nothing is saved
+            var est;
+            if(imp.bench&&imp.bench.speed){est="On this phone that should take about "+leftText(P.secs*frac/imp.bench.speed)+"."}
+            else if(imp.bench==="fail")est="It takes longer than adding them as they are.";
+            else{
+              est="Timing a few files to see how long this phone will take\u2026";
+              if(!imp.bench&&dl.benchShrink){var me=imp;me.bench="running";
+                dl.benchShrink(id,imp.kbps||48).then(function(r){me.bench=r||"fail";if(imp===me&&mine()&&mode.k==="import")paint()},function(){me.bench="fail";if(imp===me&&mine()&&mode.k==="import")paint()})}
+            }
+            b.appendChild(h("p",{class:"note",text:est}));
+          }
         }
         if(!todo){
           b.appendChild(h("p",{class:"muted",text:"Everything you picked is already saved. Nothing to add."}));
@@ -1890,7 +1922,7 @@ function openDownloads(v,view){
         }
         var go=h("button",{class:"btn",type:"button"},["Add "+dlCount(todo)+" chapter"+(todo===1?"":"s")]);
         go.onclick=function(){
-          var fs=imp.files,opts={skipSaved:imp.skip,shrink:imp.shrink?48:0};
+          var fs=imp.files,opts={skipSaved:imp.skip,shrink:imp.shrink?(imp.kbps||48):0};
           if(opts.shrink&&!(dl.prepShrink&&dl.prepShrink()))opts.shrink=0;   // set up audio inside the tap (iPhone needs that)
           imp={running:true,done:0,total:0,at:"",t0:Date.now(),shrink:!!opts.shrink};paint();
           var wl=null;try{if(navigator.wakeLock)navigator.wakeLock.request("screen").then(function(l){wl=l},function(){})}catch(e){}
@@ -1946,7 +1978,7 @@ function openDownloads(v,view){
         imp={checking:true,at:""};paint();
         try{dl.planAudio(id,fs,function(n,t,at){if(imp&&imp.checking){imp.at=at;if(mine()&&mode.k==="import")paint()}}).then(function(P){
           if(!P){imp={res:{saved:0,skipped:0,unmatched:[],failed:0,error:"nofiles"}};if(mine())paint();return}
-          imp={plan:P,files:fs,skip:true,shrink:!!(P.canShrink&&P.worth)};if(mine())paint();
+          imp={plan:P,files:fs,skip:true,shrink:!!(P.canShrink&&P.worth),kbps:P.kbps>48?48:32};if(mine())paint();
         },fail)}catch(e){fail(e)}
       };
       b.appendChild(fi);

@@ -921,16 +921,47 @@
     return Promise.all([collectAudio(t, files, onProg, res), loadAudioHave().catch(function () {})]).then(function (r) {
       var jobs = r[0], bytes = 0, saved = 0;
       jobs.forEach(function (j) { bytes += j.size; if (audioHave[j.url]) saved++; });
-      var sample = jobs.filter(function (j) { return /\.mp3$/i.test(j.label); })[0];
-      return (sample ? stuck(sample.get(), 30000, "reading a file").then(kbpsOf, function () { return 0; }) : Promise.resolve(0)).then(function (kbps) {
+      var mp3s = jobs.filter(function (j) { return /\.mp3$/i.test(j.label); }), picks = [];
+      for (var q = 0; q < Math.min(5, mp3s.length); q++) picks.push(mp3s[Math.floor(q * (mp3s.length - 1) / Math.max(1, Math.min(5, mp3s.length) - 1))]);
+      return Promise.all(picks.map(function (j) { return stuck(j.get(), 30000, "reading a file").then(kbpsOf, function () { return 0; }).then(function (k) { return { k: k, w: j.size || 1 }; }); })).then(function (ks) {
+        // bytes-weighted average: the sizes add up to total bytes, so this gives the total length best
+        var bw = 0, sec = 0; ks.forEach(function (x) { if (x.k) { bw += x.w; sec += x.w * 8 / (x.k * 1000); } });
+        return bw ? Math.round(bw * 8 / sec / 1000) : 0;
+      }).then(function (kbps) {
         var secs = kbps ? bytes * 8 / (kbps * 1000) : 0;
         lastPlan = { id: id, files: files, jobs: jobs, res: res };
         return {
-          count: jobs.length, bytes: bytes, saved: saved, kbps: kbps, hours: secs / 3600,
-          smallBytes: secs * 48000 / 8, canShrink: !!(window.Worker && window.OfflineAudioContext && (window.AudioContext || window.webkitAudioContext)),
-          worth: kbps > 72, skipped: res.skipped, unmatched: res.unmatched, other: res.other, inZip: res.inZip
+          count: jobs.length, bytes: bytes, saved: saved, kbps: kbps, hours: secs / 3600, secs: secs,
+          smallBytes: secs * 48000 / 8, size48: secs * 48000 / 8, size32: secs * 32000 / 8,
+          canShrink: !!(window.Worker && window.OfflineAudioContext && (window.AudioContext || window.webkitAudioContext)),
+          worth: kbps > 40, skipped: res.skipped, unmatched: res.unmatched, other: res.other, inZip: res.inZip
         };
       });
+    });
+  }
+
+  // how fast this phone makes audio smaller: shrink a few of the picked files the same way an import would (several at
+  // once), without saving anything. Resolves { speed: seconds of audio done per second, files } or null.
+  function benchShrink(id, kbps) {
+    var plan = lastPlan && lastPlan.id === id ? lastPlan : null;
+    if (!plan || !prepShrink()) return Promise.resolve(null);
+    var conc = Math.min(3, shr.workers.length + 1);
+    // middle-sized chapters, so one very short or very long file doesn't skew it
+    var pool = plan.jobs.filter(function (j) { return /\.mp3$/i.test(j.label) && j.size > 0; }).sort(function (a, b) { return a.size - b.size; });
+    if (!pool.length) return Promise.resolve(null);
+    var mid = Math.floor(pool.length / 2), pick = pool.slice(Math.max(0, mid - conc), Math.max(0, mid - conc) + conc * 2);
+    var done = 0, t0 = performance.now(), i = 0;
+    function lane() {
+      if (i >= pick.length) return Promise.resolve();
+      var j = pick[i++];
+      return stuck(j.get(), 30000, "reading a file").then(function (bl) {
+        return checkAudio(bl).then(function (k) { return shrinkAudio(k.blob, kbps, k.dur).then(function (sm) { done += (sm && sm.dur) || k.dur || 0; }); });
+      }).catch(function () {}).then(lane);
+    }
+    var lanes = []; for (var n = 0; n < conc; n++) lanes.push(lane());
+    return Promise.all(lanes).then(function () {
+      var wall = (performance.now() - t0) / 1000;
+      return done > 0 && wall > 0 ? { speed: done / wall, files: pick.length } : null;
     });
   }
 
@@ -2152,7 +2183,7 @@
 
   window.BBReader = {
     dl: {
-      importAudio: importAudio, planAudio: planAudio, prepShrink: prepShrink, parseAudioName: parseAudioName, quick: dlQuick, status: dlStatus, start: dlStart, pause: dlPause, resume: dlResume, remove: dlRemove,
+      importAudio: importAudio, planAudio: planAudio, prepShrink: prepShrink, benchShrink: benchShrink, parseAudioName: parseAudioName, quick: dlQuick, status: dlStatus, start: dlStart, pause: dlPause, resume: dlResume, remove: dlRemove,
       job: function (id, kind) { return dlJobs[id + "|" + kind] || null; },
       on: function (fn) { dlSubs.push(fn); }, off: function (fn) { var i = dlSubs.indexOf(fn); if (i >= 0) dlSubs.splice(i, 1); },
       supported: function () { return !!window.caches; }
