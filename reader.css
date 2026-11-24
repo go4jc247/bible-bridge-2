@@ -113,3 +113,6 @@ html.rd-noaudio .rd-cplay{display:none}
 #rd-fol{min-width:48px}
 #rd-spd{min-width:50px}
 #rd-fol[aria-pressed="true"]{background:var(--rd-accent)!important;color:var(--rd-accent-ink)!important;border-color:var(--rd-accent)!important}
+
+/* smooth scrolling while listening: the chapters are pinned and slid by the graphics hardware (see reader.js, "gliding") */
+html.rd-glide #rd-body{position:fixed;z-index:1;margin:0;will-change:transform;touch-action:none}

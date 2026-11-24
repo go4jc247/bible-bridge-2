@@ -142,6 +142,7 @@
       play: "Play", pause: "Pause", prev: "Previous chapter", next: "Next chapter", back: "Back", smaller: "Smaller text",
       larger: "Larger text", speed: "Playback speed", seek: "Seek", jump: "Go to the chapter that is playing",
       trLabel: "Bible translation", withAudio: "Text and audio", textOnly: "Text only",
+      scrollLabel: "Scrolling", smoothName: "Smooth scrolling while listening", smoothHelp: "The text glides instead of moving a pixel at a time", on: "On", off: "Off",
       noText: "The text did not load. Check your connection.", retry: "Try again" },
     ru: { end: "Конец Библии", loading: "Загрузка…", tapStart: "Нажмите «Воспроизвести»",
       failStart: "Аудио не запустилось. Нажмите «Воспроизвести» ещё раз.", failNone: "Для этой главы аудио не сохранено. Добавьте его на экране загрузки этого перевода.", failFile: "Не удалось воспроизвести аудиофайл этой главы. Попробуйте добавить его снова.", failLoad: "Аудио не загрузилось. Проверьте соединение и нажмите «Воспроизвести».",
@@ -150,6 +151,7 @@
       play: "Воспроизвести", pause: "Пауза", prev: "Предыдущая глава", next: "Следующая глава", back: "Назад", smaller: "Мельче",
       larger: "Крупнее", speed: "Скорость", seek: "Перемотка", jump: "К воспроизводимой главе",
       trLabel: "Перевод Библии", withAudio: "Текст и аудио", textOnly: "Только текст",
+      scrollLabel: "Прокрутка", smoothName: "Плавная прокрутка при прослушивании", smoothHelp: "Текст скользит плавно, а не скачет по пикселю", on: "Вкл.", off: "Выкл.",
       noText: "Текст не загрузился. Проверьте соединение.", retry: "Повторить" },
     es: { end: "Fin de la Biblia", loading: "Cargando…", tapStart: "Toca reproducir para empezar",
       failStart: "El audio no empezó. Toca reproducir para intentarlo de nuevo.", failNone: "No hay audio guardado para este capítulo. Agrégalo desde la pantalla de descargas de esta versión.", failFile: "No se pudo reproducir el audio de este capítulo. Intenta agregarlo de nuevo.", failLoad: "El audio no cargó. Revisa tu conexión y toca reproducir.",
@@ -158,6 +160,7 @@
       play: "Reproducir", pause: "Pausa", prev: "Capítulo anterior", next: "Capítulo siguiente", back: "Atrás", smaller: "Texto más pequeño",
       larger: "Texto más grande", speed: "Velocidad de reproducción", seek: "Buscar", jump: "Ir al capítulo que se está reproduciendo",
       trLabel: "Traducción", withAudio: "Texto y audio", textOnly: "Solo texto",
+      scrollLabel: "Desplazamiento", smoothName: "Desplazamiento suave al escuchar", smoothHelp: "El texto se desliza en lugar de moverse píxel a píxel", on: "Sí", off: "No",
       noText: "No se pudo cargar el texto. Revisa tu conexión.", retry: "Reintentar" }
   };
 
@@ -1413,6 +1416,7 @@
       sysUntil = performance.now() + 400; held = false;
       refreshPlayerVisibility();
       setTitle(label(b, c));
+      exitGlide();
       window.scrollTo(0, 0);
       // reopening at the saved spot: go back to the same place inside the chapter
       if (resumeOff && resumeOff.b === b && resumeOff.c === c && resumeOff.off > 0) {
@@ -1447,6 +1451,7 @@
   function scrollToChapter(p, smooth) {
     var r = findRendered(p);
     if (!r) return false;
+    exitGlide();
     sysUntil = performance.now() + (smooth && !reduceMotion ? 900 : 150);
     r.el.scrollIntoView({ block: "start", behavior: smooth && !reduceMotion ? "smooth" : "auto" });
     return true;
@@ -1493,7 +1498,7 @@
       if (view !== "reader" || guard++ >= 4) { filling = false; return; }
       var cur = detectViewing();
       if (!cur) { filling = false; return; }
-      var dist = document.documentElement.scrollHeight - (window.scrollY + window.innerHeight);
+      var dist = vMax() - vY();
       if (rendered.length - 1 >= cur.ix + 1 && dist >= 1800) { filling = false; return; }
       appendNext().then(function (ok) { if (ok) step(); else filling = false; });
     })();
@@ -1709,6 +1714,7 @@
   var sband = null, bandTimer = 0;
   // scroll the text so the spot for audio-time t (or, if the length is not known yet, for a fraction of the chapter) sits in the middle, and show the soft band
   function seekScroll(t, frac, ch) {
+    exitGlide();
     var y = null;
     try { y = estimateY(t, frac, ch); } catch (e) { y = null; }
     if (y == null) return;
@@ -1782,6 +1788,80 @@
   var TAIL = 1;                    // seconds of silence at the end
   var followOn = (load("bb-rd-follow") || (reduceMotion ? "0" : "1")) === "1";
   var held = false, sysUntil = 0, raf = 0, lastTs = 0, fpos = null, pitch = 0, rng = document.createRange();
+
+  /* ---------- smooth scrolling while listening ----------
+     A page can only scroll in whole pixels, and reading moves only ~10 pixels a second, so following the audio by
+     scrolling makes the text hop one pixel at a time. Instead, while the audio plays and the text follows it, the
+     chapters are pinned in place and slid by the graphics hardware, a fraction of a pixel every frame ("gliding").
+     Whenever anything else needs the page -- your finger, seeking, text size, closing -- it becomes a normal page
+     again at exactly the same spot. A swipe while gliding moves the text with your finger, coasts a short way, and
+     then hands over to normal scrolling; a tap just stops following. */
+  var smoothOn = (load("bb-rd-smooth") || (reduceMotion ? "0" : "1")) === "1";
+  var G = { on: false, pos: 0, top: 0, trail: 0, vel: 0, drag: null, viewAt: 0 };
+  function vY() { return G.on ? G.pos : window.scrollY; }               // how far down the reading is, gliding or not
+  function vMax() {
+    if (!G.on) return Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    return Math.max(0, G.top + $("#rd-body").offsetHeight + G.trail - window.innerHeight);
+  }
+  function gPlace(p) { G.pos = p; $("#rd-body").style.transform = "translate3d(0," + (-p) + "px,0)"; }
+  function enterGlide() {
+    if (G.on) return;
+    var b = $("#rd-body"), r = b.getBoundingClientRect(), y = window.scrollY;
+    G.top = r.top + y;
+    G.trail = Math.max(0, document.documentElement.scrollHeight - (G.top + b.offsetHeight));
+    G.on = true; G.vel = 0;
+    b.style.top = G.top + "px"; b.style.left = r.left + "px"; b.style.width = r.width + "px"; b.style.boxSizing = "border-box";
+    html.classList.add("rd-glide");
+    sysUntil = performance.now() + 300;
+    window.scrollTo(0, 0);
+    gPlace(y);
+  }
+  function exitGlide() {
+    if (!G.on || G.drag) return;                       // never swap pages under a finger
+    var p = G.pos, b = $("#rd-body");
+    G.on = false;
+    html.classList.remove("rd-glide");
+    b.style.top = b.style.left = b.style.width = b.style.transform = b.style.boxSizing = "";
+    sysUntil = performance.now() + 300;
+    window.scrollTo(0, Math.round(p));
+    fpos = null;
+  }
+  function setSmooth(on) {
+    smoothOn = !!on; store("bb-rd-smooth", smoothOn ? "1" : "0");
+    if (!smoothOn) exitGlide();
+    fpos = null; kick();
+  }
+  // a finger on the text while it glides
+  function gTouchStart(e) {
+    if (!G.on || !e.touches || e.touches.length !== 1) return;
+    var t = e.touches[0];
+    G.drag = { y0: t.clientY, p0: G.pos, pts: [[performance.now(), t.clientY]], moved: false };
+    held = true; G.vel = 0; updateChip();                // following stops at once; the text stays where it is
+  }
+  function gTouchMove(e) {
+    if (!G.drag || !e.touches || !e.touches.length) return;
+    var t = e.touches[0], dy = t.clientY - G.drag.y0;
+    if (Math.abs(dy) > 6) G.drag.moved = true;
+    if (e.cancelable) e.preventDefault();
+    gPlace(Math.max(0, Math.min(vMax(), G.drag.p0 - dy)));
+    G.drag.pts.push([performance.now(), t.clientY]); if (G.drag.pts.length > 6) G.drag.pts.shift();
+  }
+  function gTouchEnd() {
+    if (!G.drag) return;
+    var d = G.drag;
+    if (!d.moved) { G.drag = null; exitGlide(); onScroll(); return; }   // a tap: a normal page right away
+    // the speed of the last moments of the swipe (px per ms; positive = the text moving up), then a short coast
+    var a = d.pts[0], z = d.pts[d.pts.length - 1], ms = Math.max(1, z[0] - a[0]);
+    var v = performance.now() - z[0] > 80 ? 0 : -(z[1] - a[1]) / ms, last = performance.now(), gone = 0, cap = window.innerHeight * 0.6;
+    G.drag = { coasting: true };
+    (function coast(now) {
+      var dt = Math.min(32, now - last); last = now;
+      v *= Math.exp(-dt / 250);
+      var step = v * dt; gone += Math.abs(step);
+      if (Math.abs(v) > 0.02 && gone < cap) { gPlace(Math.max(0, Math.min(vMax(), G.pos + step))); requestAnimationFrame(coast); }
+      else { G.drag = null; exitGlide(); onScroll(); }   // settle into the normal page right here
+    })(last);
+  }
 
   function lenKey(ch) { return tr.id + ":" + ch.b + ":" + ch.c; }
   // the playing chapter's length. The browser's number is used unless it disagrees with the length counted from the
@@ -1862,7 +1942,7 @@
     var lf = pr.width > 0 ? (rc.left + rc.width * fr - pr.left) / pr.width : 0.5;
     lf = lf < 0 ? 0 : lf > 1 ? 1 : lf;
     // position inside the line (left to right) moves the spot smoothly down the line, so scrolling never jumps a whole line
-    return window.scrollY + rc.top + rc.height / 2 + (lf - 0.5) * pt;
+    return vY() + rc.top + rc.height / 2 + (lf - 0.5) * pt;
   }
   function engineOn() { return isOpen && view === "reader" && followOn && !held && !seeking && !!playing && !A.paused; }
   function viewingPlaying() {
@@ -1873,7 +1953,7 @@
   }
   function frame(ts) {
     raf = 0;
-    if (!engineOn()) return;
+    if (!engineOn()) { exitGlide(); return; }
     raf = requestAnimationFrame(frame);
     if (performance.now() < sysUntil || pendingFrac !== null) { fpos = null; return; }
     var y = null;
@@ -1881,8 +1961,25 @@
     if (y == null) return;
     var top = $("#rd-bar").getBoundingClientRect().bottom;
     var pl = $("#rd-player"), bottom = pl.hidden ? window.innerHeight : pl.getBoundingClientRect().top;
-    var max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    var max = vMax();
     var target = Math.max(0, Math.min(max, y - (top + bottom) / 2));
+    if (smoothOn) {
+      // glide: move at the steady speed the reading spot moves over the next few seconds, with a gentle pull toward it
+      if (!G.on) { enterGlide(); fpos = null; }
+      if (fpos === null) fpos = G.pos;
+      var dtg = Math.min(0.1, (ts - lastTs) / 1000 || 0.016); lastTs = ts;
+      var t0 = A.currentTime, ya = null, yb = null;
+      try { ya = estimateY(t0 + 3); yb = estimateY(Math.max(0, t0 - 3)); } catch (e) {}
+      var v = ya != null && yb != null ? (ya - yb) / (t0 + 3 - Math.max(0, t0 - 3)) * (A.playbackRate || 1) : 0;
+      G.vel += (v - G.vel) * (1 - Math.exp(-dtg / 1.2));
+      var gd = target - fpos;
+      if (Math.abs(gd) > window.innerHeight * 1.5) fpos = target;                       // far away: jump
+      else fpos += G.vel * dtg + gd * (1 - Math.exp(-dtg / (Math.abs(gd) > 40 ? 0.45 : 2.5)));   // catch up briskly, then glide
+      fpos = Math.max(0, Math.min(max, fpos));
+      gPlace(fpos);
+      if (ts - G.viewAt > 300) { G.viewAt = ts; onScroll(); }   // chapter name, saved place, next chapter: as if it had scrolled
+      return;
+    }
     var cur = window.scrollY;
     if (fpos === null || Math.abs(fpos - cur) > 3) fpos = cur;
     var dt = Math.min(0.1, (ts - lastTs) / 1000 || 0.016); lastTs = ts;
@@ -1893,14 +1990,15 @@
     if (ry !== Math.round(cur)) window.scrollTo(0, ry);
   }
   function kick() {
-    if (!engineOn()) { updateChip(); return; }
+    if (!engineOn()) { exitGlide(); updateChip(); return; }
     updateChip();
     if (!raf) { lastTs = performance.now(); fpos = null; raf = requestAnimationFrame(frame); }
   }
   function hold() {
     if (!isOpen || !followOn || held || !playing) return;
-    if (performance.now() < sysUntil) return;
+    if (performance.now() < sysUntil && !G.on) return;
     held = true; updateChip();
+    exitGlide();                                       // (waits while a finger is moving the gliding text)
   }
   function showFollow() { $("#rd-fol").setAttribute("aria-pressed", followOn ? "true" : "false"); }
 
@@ -1909,6 +2007,7 @@
   // keep=true: stay on the same line of the same chapter while the text grows or shrinks
   function applySize(keep) {
     var anchor = null;
+    exitGlide();
     if (keep && view === "reader") {
       var cur = detectViewing();
       if (cur) { var h = rendered[cur.ix].el.offsetHeight; anchor = { ix: cur.ix, ratio: h ? cur.off / h : 0 }; }
@@ -1953,6 +2052,18 @@
       b.onclick = function () { closeTrMenu(); switchTr(id); };
       box.appendChild(b);
     });
+    box.appendChild(el("h2", null, T().scrollLabel));
+    var sm = el("button", "opt");
+    sm.type = "button";
+    sm.setAttribute("role", "menuitemcheckbox");
+    sm.setAttribute("aria-checked", smoothOn ? "true" : "false");
+    var sn = el("span", "nm");
+    sn.appendChild(el("b", null, T().smoothName));
+    sn.appendChild(el("small", null, T().smoothHelp));
+    sm.appendChild(sn);
+    sm.appendChild(el("span", "cd", smoothOn ? T().on : T().off));
+    sm.onclick = function () { setSmooth(!smoothOn); closeTrMenu(); toast(T().smoothName + ": " + (smoothOn ? T().on : T().off), 1400); };
+    box.appendChild(sm);
     m.appendChild(box);
     m.hidden = false;
     m.onclick = function (e) { if (e.target === m) closeTrMenu(); };
@@ -2003,6 +2114,7 @@
   }
   function close(fromPop) {
     if (!isOpen) return;
+    G.drag = null; exitGlide();
     persist();
     A.pause();
     isOpen = false; view = "closed";
@@ -2143,6 +2255,10 @@
     // reacting to the touch itself makes the button work even then
     $("#rd-chip").addEventListener("touchstart", function (e) { e.preventDefault(); chipTapped(); }, { passive: false });
 
+    document.addEventListener("touchstart", function (e) { if (e.target && e.target.closest && e.target.closest("#rd-body")) gTouchStart(e); }, { passive: true });
+    document.addEventListener("touchmove", function (e) { if (G.drag && !G.drag.coasting) gTouchMove(e); }, { passive: false });
+    document.addEventListener("touchend", gTouchEnd, { passive: true });
+    document.addEventListener("touchcancel", gTouchEnd, { passive: true });
     document.addEventListener("touchmove", function (e) { if (e.target && e.target.closest && e.target.closest("#rd-body")) hold(); }, { passive: true });
     window.addEventListener("wheel", hold, { passive: true });
     window.addEventListener("keydown", function (e) {
@@ -2150,7 +2266,7 @@
       if (e.key === "Escape") { if (!$("#rd-trmenu").hidden) closeTrMenu(); else close(false); return; }
       if (/^(ArrowUp|ArrowDown|PageUp|PageDown|Home|End| )$/.test(e.key) && !/INPUT|TEXTAREA|BUTTON/.test((e.target && e.target.tagName) || "")) hold();
     });
-    window.addEventListener("resize", function () { pitch = 0; onScroll(); });
+    window.addEventListener("resize", function () { pitch = 0; exitGlide(); onScroll(); });
     window.addEventListener("scroll", onScroll, { passive: true });
     document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden" && isOpen) persist(); });
     window.addEventListener("pagehide", function () { if (isOpen) persist(); });
