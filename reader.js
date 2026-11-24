@@ -600,12 +600,59 @@
       throw e;
     });
   }
-  function saveAudio(t, b, c) {
+  // j (optional): the download job -- j.shrink is the bit rate to make each file smaller (0 = save it as it comes)
+  function saveAudio(t, b, c, j) {
     var u = audioUrlFor(t, b, c);
     if (!u || audioHave[u]) return Promise.resolve();
     return fetchFirst(altUrls(t, b, c), 0).then(function (bl) {
-      return cacheStrict(AUDIO_CACHE, u, new Response(bl, { status: 200, headers: { "Content-Type": bl.type || "audio/mpeg" } }));
+      if (!bl.type) bl = new Blob([bl], { type: "audio/mpeg" });
+      if (!j || !j.shrink) return cacheStrict(AUDIO_CACHE, u, new Response(bl, { status: 200, headers: { "Content-Type": bl.type || "audio/mpeg" } }));
+      return checkAudio(bl).then(function (k) {
+        return shrinkAudio(k.blob, j.shrink, k.dur).then(function (sm) { return sm || k; }, function () { j.kept = (j.kept || 0) + 1; return k; });
+      }).then(function (k) {
+        j.before = (j.before || 0) + bl.size; j.after = (j.after || 0) + k.blob.size;
+        return cacheStrict(AUDIO_CACHE, u, audioResp(k.blob, k.dur || 0));
+      });
     }).then(function () { audioHave[u] = true; });
+  }
+  /* Before an audio download: fetch two typical chapters to see how big and what quality the files are, then
+     estimate the whole download from the chapters' text lengths (a longer chapter takes longer to read), and time
+     how fast this phone makes them smaller. Nothing is saved. */
+  function planDownload(id, pairs) {
+    var t = TR[id];
+    if (!t || !t.audio || t.custom) return Promise.resolve(null);
+    return Promise.all([getIndex(id), loadAudioHave().catch(function () {})]).then(function (r) {
+      var ix = r[0], list = pairs, todo = [], text = 0, already = 0;
+      if (!list) { list = []; for (var b = 0; b < ix.len.length; b++) for (var c = 1; c <= ix.len[b].length; c++) if (ix.len[b][c - 1] > 0) list.push([b, c]); }
+      list.forEach(function (p) {
+        var n = ix.len[p[0]][p[1] - 1] || 0;
+        if (audioHave[audioUrlFor(t, p[0], p[1])]) already++; else { todo.push(p); text += n; }
+      });
+      if (!todo.length) return { count: 0, already: already };
+      var bySize = todo.slice().sort(function (x, y) { return ix.len[x[0]][x[1] - 1] - ix.len[y[0]][y[1] - 1]; });
+      var picks = [bySize[Math.floor(bySize.length * 0.4)], bySize[Math.floor(bySize.length * 0.65)]].filter(function (p, i, a) { return p && a.indexOf(p) === i; });
+      return Promise.all(picks.map(function (p) {
+        return stuck(fetchFirst(altUrls(t, p[0], p[1]), 0), 45000, "fetching a sample").then(function (bl) {
+          return kbpsOf(bl).then(function (k) { return { bl: bl, kbps: k, text: ix.len[p[0]][p[1] - 1] }; });
+        });
+      })).then(function (smp) {
+        var ab = 0, tb = 0, bits = 0;
+        smp.forEach(function (x) { ab += x.bl.size; tb += x.text; bits += x.bl.size * 8 / Math.max(1, x.kbps * 1000); });
+        var kbps = bits > 0 ? Math.round(ab * 8 / bits / 1000) : 0, bytes = tb ? ab / tb * text : 0;
+        var plan = { count: todo.length, already: already, bytes: bytes, kbps: kbps, secs: kbps ? bytes * 8 / (kbps * 1000) : 0,
+          canShrink: !!(window.Worker && window.OfflineAudioContext && (window.AudioContext || window.webkitAudioContext)) && kbps > 0 };
+        if (!plan.canShrink || kbps <= 36 || !prepShrink()) return plan;
+        // time this phone making the two samples smaller, as a download would
+        var t0 = performance.now(), done = 0;
+        return Promise.all(smp.map(function (x) {
+          return checkAudio(x.bl).then(function (k) { return shrinkAudio(k.blob, 48, k.dur).then(function (sm) { done += (sm && sm.dur) || k.dur || 0; }); }).catch(function () {});
+        })).then(function () {
+          var wall = (performance.now() - t0) / 1000;
+          if (done > 0 && wall > 0) plan.speed = done / wall;
+          return plan;
+        });
+      });
+    });
   }
   function failText(e) {
     if (e && (e.name === "QuotaExceededError" || /quota/i.test(e.message || ""))) return "full";
@@ -613,23 +660,33 @@
     return "failed";
   }
   function runJob(j, ix) {
-    var t = TR[j.id];
-    (function step() {
-      if (j.paused) { j.running = false; dlEmit(); return; }
-      if (j.i >= j.list.length) { j.running = false; j.finished = true; dlEmit(); return; }
-      var p = j.list[j.i];
+    // one chapter at a time; when audio is being made smaller, a few at once (each one waits on this phone, not the network)
+    var t = TR[j.id], n = j.kind === "audio" && j.shrink ? Math.max(1, Math.min(3, shr.workers.length + 1)) : 1, failAt = -1;
+    j.done = j.i; j.n = n; j.live = n; j.lane = lane;
+    function end() {
+      if (failAt >= 0) j.i = failAt;                   // a resume starts again from the first chapter that failed
+      j.running = false;
+      if (!j.error && !j.paused && j.i >= j.list.length) j.finished = true;
+      dlEmit();
+    }
+    function lane() {
+      if (j.paused || j.error || j.i >= j.list.length) { if (--j.live === 0) end(); return; }
+      var idx = j.i++, p = j.list[idx];
       j.at = p;
-      (j.kind === "text" ? saveText(ix, p[0], p[1]) : saveAudio(t, p[0], p[1])).then(function () {
-        j.i++; j.done = j.i; dlEmit(); step();
+      (j.kind === "text" ? saveText(ix, p[0], p[1]) : saveAudio(t, p[0], p[1], j)).then(function () {
+        j.done++; dlEmit(); lane();
       }, function (e) {
         // a chapter the host simply doesn't have: skip it, keep going with the rest
-        if (e && e.http === 404) { (j.skipped = j.skipped || []).push(p); j.i++; j.done = j.i; dlEmit(); step(); return; }
-        j.running = false; j.error = failText(e); dlEmit();
+        if (e && e.http === 404) { (j.skipped = j.skipped || []).push(p); j.done++; dlEmit(); lane(); return; }
+        if (!j.error) j.error = failText(e);
+        if (failAt < 0 || idx < failAt) failAt = idx;
+        if (--j.live === 0) end();
       });
-    })();
+    }
+    for (var k = 0; k < n; k++) lane();
   }
   // pairs: [[book, chapter], ...] or null for the whole Bible
-  function dlStart(id, kind, pairs) {
+  function dlStart(id, kind, pairs, opts) {
     var key = id + "|" + kind;
     if (!window.caches) { dlJobs[key] = { id: id, kind: kind, list: [], i: 0, done: 0, total: 0, running: false, error: "nocache" }; dlEmit(); return Promise.resolve(); }
     var old = dlJobs[key];
@@ -637,13 +694,19 @@
     return getIndex(id).then(function (ix) {
       var list = pairs;
       if (!list) { list = []; for (var b = 0; b < ix.len.length; b++) for (var c = 1; c <= ix.len[b].length; c++) if (ix.len[b][c - 1] > 0) list.push([b, c]); }
-      var j = { id: id, kind: kind, list: list, i: 0, done: 0, total: list.length, paused: false, running: true, error: "", finished: false, at: null };
+      var j = { id: id, kind: kind, list: list, i: 0, done: 0, total: list.length, paused: false, running: true, error: "", finished: false, at: null,
+        shrink: kind === "audio" && opts && opts.shrink && prepShrink() ? opts.shrink : 0 };
       dlJobs[key] = j; dlEmit(); runJob(j, ix);
     }, function () { dlJobs[key] = { id: id, kind: kind, list: [], i: 0, done: 0, total: 0, running: false, error: failText() }; dlEmit(); });
   }
   function dlPause(id, kind) { var j = dlJobs[id + "|" + kind]; if (j && j.running) { j.paused = true; } }
   function dlResume(id, kind) {
     var j = dlJobs[id + "|" + kind];
+    if (j && j.running && j.paused && j.lane) {        // paused, but the last chapters are still finishing: just carry on
+      j.paused = false;
+      while (j.live < j.n) { j.live++; j.lane(); }
+      dlEmit(); return Promise.resolve();
+    }
     if (!j || j.running || j.finished) return Promise.resolve();
     return getIndex(id).then(function (ix) { j.paused = false; j.running = true; j.error = ""; dlEmit(); runJob(j, ix); });
   }
@@ -2418,7 +2481,7 @@
 
   window.BBReader = {
     dl: {
-      importAudio: importAudio, planAudio: planAudio, prepShrink: prepShrink, benchShrink: benchShrink, parseAudioName: parseAudioName, quick: dlQuick, status: dlStatus, start: dlStart, pause: dlPause, resume: dlResume, remove: dlRemove,
+      importAudio: importAudio, planAudio: planAudio, prepShrink: prepShrink, benchShrink: benchShrink, planDownload: planDownload, parseAudioName: parseAudioName, quick: dlQuick, status: dlStatus, start: dlStart, pause: dlPause, resume: dlResume, remove: dlRemove,
       job: function (id, kind) { return dlJobs[id + "|" + kind] || null; },
       on: function (fn) { dlSubs.push(fn); }, off: function (fn) { var i = dlSubs.indexOf(fn); if (i >= 0) dlSubs.splice(i, 1); },
       supported: function () { return !!window.caches; }

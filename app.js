@@ -1745,6 +1745,10 @@ function openDownloads(v,view){
     var d=st[k],j=dl.job(id,k),box=h("div",{class:"dlsec"});
     box.appendChild(h("div",{class:"dlh"},[h("b",{text:kindName(k)}),h("span",{text:d.done>=d.total?_f("All {0} chapters saved",[dlCount(d.total)]):_f("{0} of {1} chapters saved",[dlCount(d.done),dlCount(d.total)])})]));
     box.appendChild(bar(d.done,d.total));
+    if(k==="audio"&&j&&j.shrink&&j.before>0){
+      var mb2=function(n){return n>=1e9?(n/1e9).toFixed(1)+" GB":Math.max(1,Math.round(n/1e6))+" MB"};
+      box.appendChild(h("p",{class:"note",text:(j.running?"Making it smaller as it downloads: ":"Made smaller: ")+mb2(j.before)+" became "+mb2(j.after)+" ("+Math.round((1-j.after/j.before)*100)+"% less)."}));
+    }
     if(k==="audio"&&manual&&d.done>0&&d.done<d.total&&d.books&&!(j&&j.running)){
       // name the chapters still missing, so they can be found and added
       var miss=[];
@@ -1791,9 +1795,35 @@ function openDownloads(v,view){
     if(!dl.supported()){b.appendChild(h("p",{class:"note",text:"This browser can't keep files for offline use here, so downloading isn't available."}));return}
     if(failed||!st){b.appendChild(h("p",{class:"note",text:failed?"Couldn't read this translation. Check your connection and try again.":"Loading\u2026"}));return}
     if(mode.k==="warn"){
-      b.appendChild(h("p",{class:"muted",text:"Audio is saved in your browser's storage on this device. Depending on your device's storage limits (iPhones can be strict), it may or may not all stay saved for offline use. Audio files are large: a whole Bible can run to hundreds of megabytes."}));
+      // before downloading audio: how big it will be, and the choice to make it smaller as it downloads
+      var mbs=function(n){return n>=1e9?(n/1e9).toFixed(1)+" GB":Math.max(1,Math.round(n/1e6))+" MB"};
+      var leftT=function(sec){sec=Math.max(0,sec);if(sec>=3600)return Math.floor(sec/3600)+" h "+Math.round(sec%3600/60)+" min";if(sec>=300)return Math.round(sec/60)+" min";var r5=Math.max(5,Math.round(sec/5)*5);if(sec<60)r5=Math.min(55,r5);if(r5>=60){var m=Math.floor(r5/60),ss=r5%60;return m+" min"+(ss?" "+ss+" s":"")}return r5+" s"};
+      b.appendChild(h("p",{class:"muted",text:"Audio is saved in your browser's storage on this device. Depending on your device's storage limits (iPhones can be strict), it may or may not all stay saved for offline use."}));
+      if(!mode.plan&&dl.planDownload){
+        b.appendChild(h("p",{class:"note",text:"Checking how big these audio files are\u2026"}));
+        if(!mode.checking){var me=mode;me.checking=true;
+          dl.planDownload(id,me.pairs).then(function(P){me.plan=P||{failed:true};if(mode===me&&mine())paint()},function(){me.plan={failed:true};if(mode===me&&mine())paint()})}
+      }else{
+        var P=mode.plan||{failed:true};
+        if(P.failed||!P.bytes){
+          b.appendChild(h("p",{class:"note",text:P.count===0?"Everything here is already saved on this device.":"Couldn\u2019t check the size, so it will download as it comes."}));
+        }else{
+          b.appendChild(h("p",{class:"note",text:dlCount(P.count)+" chapter"+(P.count===1?"":"s")+" \u00b7 about "+mbs(P.bytes)+(P.secs>=3600?" \u00b7 about "+Math.round(P.secs/3600)+" hours of audio":"")+" \u00b7 "+P.kbps+" kbps"+(P.already?" ("+dlCount(P.already)+" already saved)":"")}));
+          if(mode.kbps==null)mode.kbps=P.canShrink&&P.kbps>56?48:P.canShrink&&P.kbps>40?32:0;
+          var choice=function(k,title,size,what){var on=mode.kbps===k,save=k?Math.round((1-k/P.kbps)*100):0;return h("button",{type:"button","aria-pressed":on,onclick:function(){mode.kbps=k;paint()},
+            style:"display:block;width:100%;text-align:left;font:inherit;padding:12px 14px;margin:0 0 8px;border-radius:12px;cursor:pointer;background:transparent;color:inherit;border:"+(on?"2px solid var(--accent,#1f4e6b)":"1px solid var(--line,#dcd9d0)")},
+            [h("b",{text:(on?"\u2713 ":"")+title+" \u00b7 about "+mbs(size)+(save>0?" \u00b7 saves about "+save+"%":"")}),h("div",{class:"muted",style:"margin-top:3px;font-size:.92em",text:what})])};
+          if(P.canShrink&&P.kbps>56)b.appendChild(choice(48,"Standard (48 kbps)",P.bytes*48/P.kbps,"Sounds the same as the original for one voice reading."));
+          if(P.canShrink&&P.kbps>40)b.appendChild(choice(32,"Smaller (32 kbps)",P.bytes*32/P.kbps,"The very highest sounds, like \u201cs\u201d and \u201csh\u201d, are a little softer. Most people don\u2019t notice with one clear voice; it\u2019s a bit easier to hear at 1.5\u00d7 or 2\u00d7."));
+          if(P.canShrink&&P.kbps>40)b.appendChild(choice(0,"Keep as they are",P.bytes,"Full original quality, the most space."));
+          else b.appendChild(h("p",{class:"muted",text:"These files are already small ("+P.kbps+" kbps), so making them smaller would save little. They\u2019ll be saved as they come."}));
+          if(mode.kbps&&P.speed)b.appendChild(h("p",{class:"note",text:"Making them smaller adds about "+leftT(P.secs/P.speed)+" of work on this phone, on top of the download itself. Keep the app open while it runs."}));
+        }
+      }
       b.appendChild(h("div",{style:"display:grid;gap:8px;margin-top:12px"},[
-        h("button",{class:"btn",type:"button",onclick:function(){var m=mode;mode={k:"main",warned:true};dl.start(id,m.kind,m.pairs);paint()}},["Start download"]),
+        h("button",{class:"btn",type:"button",onclick:function(){var m=mode,k=m.plan&&!m.plan.failed?(m.kbps||0):0;mode={k:"main",warned:true};
+          if(k&&dl.prepShrink)dl.prepShrink();   // set up audio inside the tap (iPhone needs that)
+          dl.start(id,m.kind,m.pairs,{shrink:k});paint()}},["Start download"]),
         h("button",{class:"btn ghost",type:"button",onclick:function(){mode={k:"main"};paint()}},["Cancel"])]));
       return;
     }
