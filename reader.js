@@ -1598,6 +1598,7 @@
   }
 
   function togglePlay() {
+    G.gapUntil = 0; G.plan = null;
     if (!tr || !tr.audio) return;
     if (!playing) {
       var cur = viewing || (rendered[0] && { b: rendered[0].b, c: rendered[0].c });
@@ -1669,6 +1670,7 @@
   }
 
   function onEnded() {
+    G.gapUntil = performance.now() + 4000;            // the hand-over to the next recording starts (see frame)
     if (preClipPlaying) { preClipPlaying = false; var cb = preClipCb; preClipCb = null; if (cb) cb(); return; }
     var ended = playing;
     try { if (ended && typeof window.onBBChapterDone === "function") window.onBBChapterDone(tr && tr.id, ended.b, ended.c); } catch (e) {}
@@ -1797,7 +1799,7 @@
      again at exactly the same spot. A swipe while gliding moves the text with your finger, coasts a short way, and
      then hands over to normal scrolling; a tap just stops following. */
   var smoothOn = (load("bb-rd-smooth") || (reduceMotion ? "0" : "1")) === "1";
-  var G = { on: false, pos: 0, top: 0, trail: 0, vel: 0, drag: null, viewAt: 0, ck: "", tr: null };
+  var G = { on: false, pos: 0, top: 0, trail: 0, vel: 0, drag: null, viewAt: 0, ck: "", tr: null, plan: null, gapUntil: 0, laying: false };
   var CH_GLIDE = 3000;   // ms to glide from the end of one chapter to the start of the next
   function vY() { return G.on ? G.pos : window.scrollY; }               // how far down the reading is, gliding or not
   function vMax() {
@@ -1847,7 +1849,7 @@
     if (!G.on || !e.touches || e.touches.length !== 1) return;
     var t = e.touches[0];
     G.drag = { y0: t.clientY, p0: G.pos, pts: [[performance.now(), t.clientY]], moved: false };
-    held = true; G.vel = 0; updateChip();                // following stops at once; the text stays where it is
+    held = true; G.vel = 0; G.plan = null; updateChip();   // following stops at once; the text stays where it is
   }
   function gTouchMove(e) {
     if (!G.drag || !e.touches || !e.touches.length) return;
@@ -1962,9 +1964,47 @@
     var pl = $("#rd-player"), bottom = pl.hidden ? window.innerHeight : pl.getBoundingClientRect().top;
     return rc.bottom > top && rc.top < bottom;
   }
+  /* ---------- planned move from one chapter into the next ----------
+     Near the end of a chapter the app already knows what plays next (nextOf follows reading plans too), and that
+     chapter is laid out below, so it knows where the reading will start and how fast it will go. The move begins
+     one second before the last word and ends half a second into the next chapter's reading, on one curve that
+     starts at the glide's own position and speed and lands on the reading spot at its speed -- no stop, no lurch.
+     Time runs on through the hand-over between the two recordings. If anything doesn't fit (the next chapter isn't
+     laid out yet, a seek, a finger, a different chapter starts), the plan is dropped and the ordinary glide goes on. */
+  function chKey(p) { return p ? p.b + ":" + p.c : ""; }
+  // where the content must sit (in reading coordinates) for chapter ch at time t into its recording to be in the middle
+  function targetFor(ch, t, mid) {
+    var d = curDuration(ch), lead = LEAD[tr.audio] || 2, y;
+    if (d > 2) y = estimateY(t, null, ch);
+    else {
+      // its length isn't known yet: assume it's read at the same pace as the chapter now playing
+      var cr = findRendered(ch), pr = playing && findRendered(playing), dp = curDuration(playing);
+      if (!cr || !pr || !(dp > 2)) return null;
+      var pace = charMap(pr.el).total / Math.max(1, dp - lead - TAIL), tot = charMap(cr.el).total;
+      y = estimateY(null, Math.max(0, Math.min(1, (t - lead) * pace / Math.max(1, tot))), ch);
+    }
+    return y == null ? null : y - mid;
+  }
+  function makePlan() {
+    if (G.plan || !playing || preClipPlaying || !(followOn && smoothOn)) return;
+    var d1 = curDuration(playing), t1 = A.currentTime;
+    if (!(d1 > 8) || d1 - t1 > 15) return;
+    var nx = nextOf(playing);
+    if (!nx) return;                                   // the end of the list: the glide just carries on to the last line
+    if (!findRendered(nx)) {                           // lay the next chapter out now, so it can be planned
+      if (!G.laying) { G.laying = true; ensureRendered(nx).then(function () { G.laying = false; }, function () { G.laying = false; }); }
+      return;
+    }
+    var ts1 = d1 - TAIL - 1, lead = LEAD[tr.audio] || 2;
+    if (t1 > ts1 - 0.05) return;                       // too late to plan this one
+    G.plan = { from: chKey(playing), to: chKey(nx), nx: nx, d1: d1, ts: ts1, te: d1 + lead + 0.6, T: null, h: null };
+  }
   function frame(ts) {
     raf = 0;
-    if (!engineOn()) { if (held || !followOn || view !== "reader") exitGlide(); else exitGlideSoon(); return; }
+    // the hand-over between two recordings (and a book-name clip) isn't a stop: a planned move keeps going through it
+    var handover = G.plan && G.plan.h && G.on && isOpen && view === "reader" && followOn && !held && !seeking &&
+      (preClipPlaying || performance.now() < G.gapUntil);
+    if (!engineOn() && !handover) { if (held || !followOn || view !== "reader") exitGlide(); else exitGlideSoon(); return; }
     if (exitTimer) { clearTimeout(exitTimer); exitTimer = 0; }
     raf = requestAnimationFrame(frame);
     if (performance.now() < sysUntil || pendingFrac !== null) { fpos = null; return; }
@@ -1978,11 +2018,57 @@
     if (smoothOn) {
       // glide: move at the steady speed the reading spot moves over the next few seconds, with a gentle pull toward it
       if (!G.on) { enterGlide(); fpos = null; }
-      if (fpos === null) { fpos = G.pos; G.tr = null; }
+      if (fpos === null) { fpos = G.pos; G.tr = null; G.plan = null; }
       var dtg = Math.min(0.1, (ts - lastTs) / 1000 || 0.016); lastTs = ts;
-      var t0 = A.currentTime, ya = null, yb = null;
-      try { ya = estimateY(t0 + 3); yb = estimateY(Math.max(0, t0 - 3)); } catch (e) {}
-      var v = ya != null && yb != null ? (ya - yb) / (t0 + 3 - Math.max(0, t0 - 3)) * (A.playbackRate || 1) : 0;
+      var rate = A.playbackRate || 1, mid = (top + bottom) / 2;
+      // ---- the planned move into the next chapter
+      try { makePlan(); } catch (e) { G.plan = null; }
+      var P = G.plan;
+      if (P) {
+        var pk = chKey(playing), Tm = null;
+        if (!preClipPlaying && pk === P.from && !A.ended && !(performance.now() < G.gapUntil)) Tm = A.currentTime;
+        else if (!preClipPlaying && pk === P.to && !A.paused) {
+          // the next recording has started: carry the time on from where it had run to during the hand-over
+          if (P.gap == null) P.gap = Math.max(0, (P.T == null ? P.d1 : P.T) + dtg * rate - P.d1 - A.currentTime);
+          Tm = P.d1 + P.gap + A.currentTime;
+        }
+        else if (pk !== P.from && pk !== P.to) { G.plan = P = null; }
+        if (P) {
+          // the move runs on its own smooth clock: it advances every frame and is gently kept in step with the
+          // recording, so a coarse audio clock or the hand-over can't make it stutter; it never runs backwards
+          var T, Tp = P.T == null ? null : P.T + dtg * rate;
+          if (Tp === null) T = Tm === null ? P.ts : Tm;
+          else if (Tm === null) T = Math.min(Tp, P.d1 + 2.5);                    // between recordings: time runs on
+          else T = Math.max(P.T, Tp + (Tm - Tp) * (1 - Math.exp(-dtg / 0.3)));
+          P.T = T;
+          if (T >= P.ts && T <= P.te) {
+            if (!P.h) {
+              var p1 = targetFor(P.nx, P.te - P.d1, mid), p1b = targetFor(P.nx, P.te - P.d1 + 1, mid);
+              if (p1 == null || p1b == null || Math.abs(p1 - fpos) > window.innerHeight * 3) { G.plan = P = null; }
+              else { var T0 = T - dtg * rate; P.h = { p0: fpos, v0: G.vel / rate, p1: p1, v1: p1b - p1, T0: T0, L: Math.max(0.5, P.te - T0) }; }
+            }
+            if (P && P.h) {
+              var H = P.h, sx = Math.min(1, (T - H.T0) / H.L), s2 = sx * sx, s3 = s2 * sx;
+              fpos = (2 * s3 - 3 * s2 + 1) * H.p0 + (s3 - 2 * s2 + sx) * H.v0 * H.L + (-2 * s3 + 3 * s2) * H.p1 + (s3 - s2) * H.v1 * H.L;
+              fpos = Math.max(0, Math.min(max, fpos));
+              gPlace(fpos);
+              G.ck = P.to; G.tr = null;                 // this chapter change is handled: no second move
+              if (ts - G.viewAt > 300) { G.viewAt = ts; onScroll(); }
+              return;
+            }
+          } else if (T > P.te) {
+            if (P.h) G.vel = P.h.v1 * rate;             // land at the reading's own speed
+            G.plan = P = null; G.ck = chKey(playing);
+          }
+        }
+      }
+      if (!engineOn()) return;                          // (only the planned move runs during a hand-over)
+      // ---- the steady glide: the speed the reading spot moves over the next few seconds (up to the last word)
+      var t0 = A.currentTime, dcur = curDuration(), ya = null, yb = null;
+      var tA = dcur > 2 ? Math.min(t0 + 3, dcur - TAIL) : t0 + 3, tB = Math.max(0, t0 - 3);
+      if (tA - tB < 1) tB = Math.max(0, tA - 1);
+      try { ya = estimateY(tA); yb = estimateY(tB); } catch (e) {}
+      var v = ya != null && yb != null && tA > tB ? (ya - yb) / (tA - tB) * rate : 0;
       // the audio moved on to the next chapter: one gentle move across the gap -- speed up, cross, slow into the
       // reading -- over about three seconds (mostly while the book and chapter are announced), instead of a lurch
       var ck = playing ? playing.b + ":" + playing.c : "";
@@ -2027,6 +2113,7 @@
     if (!raf) { lastTs = performance.now(); fpos = null; raf = requestAnimationFrame(frame); }
   }
   function hold() {
+    G.plan = null;
     if (!isOpen || !followOn || held || !playing) return;
     if (performance.now() < sysUntil && !G.on) return;
     held = true; updateChip();
@@ -2217,7 +2304,7 @@
 
     A.addEventListener("play", function () { updatePP(); updateSession(); kick(); });
     A.addEventListener("pause", function () { updatePP(); updateSession(); if (playing && pendingSeek === null) { audioT = A.currentTime; persist(); } });
-    A.addEventListener("playing", function () { setMsg(""); updatePP(); kick(); });
+    A.addEventListener("playing", function () { if (!preClipPlaying) G.gapUntil = 0; setMsg(""); updatePP(); kick(); });
     A.addEventListener("waiting", function () { setMsg(T().loading); });
     A.addEventListener("canplaythrough", function () { setMsg(""); preloadNext(); });
     A.addEventListener("ended", onEnded);
@@ -2346,6 +2433,6 @@
     translations: function () { return ORDER.map(function (id) { return TR[id]; }); },
     isOpen: function () { return isOpen; },
     // used by the tests
-    _t: { A: A, P: P, audioUrl: audioUrl, state: function () { return { tr: tr && tr.id, playing: playing, pendingSeek: pendingSeek, view: view, viewing: viewing, rendered: rendered.length }; }, psEnToRu: psEnToRu, psRuToEn: psRuToEn }
+    _t: { A: A, P: P, G: G, audioUrl: audioUrl, state: function () { return { tr: tr && tr.id, playing: playing, pendingSeek: pendingSeek, view: view, viewing: viewing, rendered: rendered.length }; }, psEnToRu: psEnToRu, psRuToEn: psRuToEn }
   };
 })();
