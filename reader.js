@@ -1817,7 +1817,17 @@
     window.scrollTo(0, 0);
     gPlace(y);
   }
+  // the audio stopped following for a moment -- most often the gap while one chapter ends and the next one loads.
+  // Swapping to a normal page and straight back makes Safari show one misplaced frame (a flash), so wait a little
+  // first; if following starts again in time, the text just keeps gliding. A finger, seeking, text size and closing
+  // still switch at once (they call exitGlide directly).
+  var exitTimer = 0;
+  function exitGlideSoon() {
+    if (!G.on || exitTimer) return;
+    exitTimer = setTimeout(function () { exitTimer = 0; if (!engineOn()) { exitGlide(); onScroll(); } }, 1500);
+  }
   function exitGlide() {
+    if (exitTimer) { clearTimeout(exitTimer); exitTimer = 0; }
     if (!G.on || G.drag) return;                       // never swap pages under a finger
     var p = G.pos, b = $("#rd-body");
     G.on = false;
@@ -1954,7 +1964,8 @@
   }
   function frame(ts) {
     raf = 0;
-    if (!engineOn()) { exitGlide(); return; }
+    if (!engineOn()) { if (held || !followOn || view !== "reader") exitGlide(); else exitGlideSoon(); return; }
+    if (exitTimer) { clearTimeout(exitTimer); exitTimer = 0; }
     raf = requestAnimationFrame(frame);
     if (performance.now() < sysUntil || pendingFrac !== null) { fpos = null; return; }
     var y = null;
@@ -2011,7 +2022,7 @@
     if (ry !== Math.round(cur)) window.scrollTo(0, ry);
   }
   function kick() {
-    if (!engineOn()) { exitGlide(); updateChip(); return; }
+    if (!engineOn()) { if (held || !followOn || view !== "reader") exitGlide(); else exitGlideSoon(); updateChip(); return; }
     updateChip();
     if (!raf) { lastTs = performance.now(); fpos = null; raf = requestAnimationFrame(frame); }
   }
