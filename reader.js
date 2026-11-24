@@ -1797,7 +1797,8 @@
      again at exactly the same spot. A swipe while gliding moves the text with your finger, coasts a short way, and
      then hands over to normal scrolling; a tap just stops following. */
   var smoothOn = (load("bb-rd-smooth") || (reduceMotion ? "0" : "1")) === "1";
-  var G = { on: false, pos: 0, top: 0, trail: 0, vel: 0, drag: null, viewAt: 0 };
+  var G = { on: false, pos: 0, top: 0, trail: 0, vel: 0, drag: null, viewAt: 0, ck: "", tr: null };
+  var CH_GLIDE = 3000;   // ms to glide from the end of one chapter to the start of the next
   function vY() { return G.on ? G.pos : window.scrollY; }               // how far down the reading is, gliding or not
   function vMax() {
     if (!G.on) return Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
@@ -1809,7 +1810,7 @@
     var b = $("#rd-body"), r = b.getBoundingClientRect(), y = window.scrollY;
     G.top = r.top + y;
     G.trail = Math.max(0, document.documentElement.scrollHeight - (G.top + b.offsetHeight));
-    G.on = true; G.vel = 0;
+    G.on = true; G.vel = 0; G.tr = null; G.ck = playing ? playing.b + ":" + playing.c : "";
     b.style.top = G.top + "px"; b.style.left = r.left + "px"; b.style.width = r.width + "px"; b.style.boxSizing = "border-box";
     html.classList.add("rd-glide");
     sysUntil = performance.now() + 300;
@@ -1966,11 +1967,31 @@
     if (smoothOn) {
       // glide: move at the steady speed the reading spot moves over the next few seconds, with a gentle pull toward it
       if (!G.on) { enterGlide(); fpos = null; }
-      if (fpos === null) fpos = G.pos;
+      if (fpos === null) { fpos = G.pos; G.tr = null; }
       var dtg = Math.min(0.1, (ts - lastTs) / 1000 || 0.016); lastTs = ts;
       var t0 = A.currentTime, ya = null, yb = null;
       try { ya = estimateY(t0 + 3); yb = estimateY(Math.max(0, t0 - 3)); } catch (e) {}
       var v = ya != null && yb != null ? (ya - yb) / (t0 + 3 - Math.max(0, t0 - 3)) * (A.playbackRate || 1) : 0;
+      // the audio moved on to the next chapter: one gentle move across the gap -- speed up, cross, slow into the
+      // reading -- over about three seconds (mostly while the book and chapter are announced), instead of a lurch
+      var ck = playing ? playing.b + ":" + playing.c : "";
+      if (ck !== G.ck) {
+        if (G.ck && Math.abs(target - fpos) < window.innerHeight * 3) G.tr = { p0: fpos, t0: ts, v0: G.vel };
+        G.ck = ck;
+      }
+      if (G.tr) {
+        var u = (ts - G.tr.t0) / CH_GLIDE;
+        if (u >= 1 || Math.abs(target - G.tr.p0) > window.innerHeight * 3) { G.tr = null; G.vel = v; }
+        else {
+          // ease in and out between where it was and where the reading is now; the reading keeps moving, so
+          // the end of the move lands on it and carries straight on at its speed
+          var e = u * u * (3 - 2 * u);
+          fpos = Math.max(0, Math.min(max, G.tr.p0 + G.tr.v0 * (ts - G.tr.t0) / 1000 * (1 - e) + (target - G.tr.p0) * e));
+          gPlace(fpos);
+          if (ts - G.viewAt > 300) { G.viewAt = ts; onScroll(); }
+          return;
+        }
+      }
       G.vel += (v - G.vel) * (1 - Math.exp(-dtg / 1.2));
       var gd = target - fpos;
       if (Math.abs(gd) > window.innerHeight * 1.5) fpos = target;                       // far away: jump
