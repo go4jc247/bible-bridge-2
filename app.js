@@ -1586,7 +1586,8 @@ function renderBibleTab(){
 
 /* ---------- sheets ---------- */
 var lastFocus=null;
-function openSheet(build){lastFocus=document.activeElement;var b=$("sheetBox");b.innerHTML="";build(b);$("overlay").classList.add("show");$("overlay").setAttribute("aria-hidden","false");b.scrollTop=0}
+function openSheet(build){lastFocus=document.activeElement;var b=$("sheetBox");b.removeAttribute("data-dl");b.innerHTML="";build(b);   /* drop the downloads screen's claim, or its progress updates would draw over this sheet */
+$("overlay").classList.add("show");$("overlay").setAttribute("aria-hidden","false");b.scrollTop=0}
 function closeSheet(){$("overlay").classList.remove("show");$("overlay").setAttribute("aria-hidden","true");if(lastFocus&&lastFocus.focus)try{lastFocus.focus()}catch(e){}}
 $("overlay").onclick=function(e){if(e.target===$("overlay"))closeSheet()};
 document.addEventListener("keydown",function(e){if(e.key==="Escape"){if($("overlay").classList.contains("show"))closeSheet();else if(!$("screen").hidden)hideScreen()}});
@@ -1727,7 +1728,7 @@ function openDownloads(v,view){
   var dl=window.BBReader&&BBReader.dl,id=v.app,tok="dl"+Date.now(),st=null,sel={},open={},mode=view||{k:"main"},isC=!!v.custom,manual=(id==="kjv"||isC),imp=null;
   function mine(){var b=$("sheetBox");return $("overlay").classList.contains("show")&&b.getAttribute("data-dl")===tok}
   function onJob(){if(!mine()){dl.off(onJob);return}refresh()}
-  function refresh(){dl.status(id).then(function(x){st=x;try{dlRecSet(id,{text:x.text.done})}catch(e){}paint()},function(){st=null;paint(true)})}
+  function refresh(){dl.status(id).then(function(x){try{dlRecSet(id,{text:x.text.done})}catch(e){}if(!mine())return;st=x;paint()},function(){if(!mine())return;st=null;paint(true)})}
   function kindName(k){return k==="text"?"Text":"Audio"}
   function startKind(k,pairs){
     if(k==="audio"&&!(mode.warned)){mode={k:"warn",kind:k,pairs:pairs};paint();return}
